@@ -1,0 +1,162 @@
+---
+title: Modèle Dimensionnel - NOUTAM SAS & L'Incontournable
+---
+erDiagram
+    dim_temps ||--o{ fait_mouvements_stock : "date_id"
+    dim_temps ||--o{ fait_ventes_restaurant : "date_id"
+    dim_temps ||--o{ fait_depenses : "date_id"
+    dim_temps ||--o{ fait_stock_quotidien : "date_id"
+    
+    dim_produit ||--o{ fait_mouvements_stock : "produit_sk"
+    dim_produit ||--o{ fait_stock_quotidien : "produit_sk"
+    dim_categorie ||--o{ dim_produit : "categorie_id"
+    dim_fournisseur ||--o{ fait_mouvements_stock : "fournisseur_sk"
+    
+    dim_plat ||--o{ fait_ventes_restaurant : "plat_sk"
+    dim_canal ||--o{ fait_ventes_restaurant : "canal_id"
+    
+    dim_cost_center ||--o{ fait_depenses : "cost_center_id"
+    dim_categorie_depense ||--o{ fait_depenses : "categorie_depense_id"
+    dim_fournisseur ||--o{ fait_depenses : "fournisseur_sk"
+    
+    dim_temps {
+        int date_id PK "YYYYMMDD"
+        date date_complete
+        int jour
+        int jour_semaine
+        text nom_jour
+        int semaine_iso
+        int mois
+        text nom_mois
+        int trimestre
+        int annee
+        text annee_mois
+        boolean est_weekend
+        boolean est_ferie
+        text saison
+    }
+    
+    dim_produit {
+        int produit_sk PK
+        int produit_id
+        int tenant_id
+        text nom
+        int categorie_id FK
+        numeric prix_achat
+        numeric prix_vente
+        numeric tva_pct
+        numeric marge_unitaire "Calculé"
+        numeric marge_pct "Calculé"
+        date date_debut
+        date date_fin
+        boolean est_actuel
+    }
+    
+    dim_categorie {
+        int categorie_id PK
+        int tenant_id
+        text code
+        text nom
+        text famille
+        text sous_famille
+        numeric tva_defaut
+    }
+    
+    dim_fournisseur {
+        int fournisseur_sk PK
+        int fournisseur_id
+        int tenant_id
+        text nom
+        text type
+        text siret
+        int delai_paiement
+        boolean est_actuel
+    }
+    
+    dim_plat {
+        int plat_sk PK
+        int plat_id
+        int tenant_id
+        text nom
+        text categorie
+        numeric prix_vente_ttc
+        numeric cout_matiere
+        numeric marge_brute "Calculé"
+        numeric ratio_cout "Food cost %"
+        int nb_ingredients
+        boolean est_actuel
+    }
+    
+    dim_canal {
+        int canal_id PK
+        text code
+        text nom
+        text type
+        numeric commission_pct
+    }
+    
+    dim_cost_center {
+        int cost_center_id PK
+        int tenant_id
+        text nom
+        text type
+        numeric budget_mensuel
+    }
+    
+    dim_categorie_depense {
+        int categorie_depense_id PK
+        int tenant_id
+        text nom
+        int cost_center_id FK
+    }
+    
+    fait_mouvements_stock {
+        int mouvement_id PK
+        int date_id FK
+        int produit_sk FK
+        int fournisseur_sk FK
+        text type_mouvement
+        numeric quantite
+        int sens "+1 ou -1"
+        numeric prix_unitaire
+        numeric valeur_mouvement
+        text source
+    }
+    
+    fait_ventes_restaurant {
+        int vente_id PK
+        int date_id FK
+        int plat_sk FK
+        int canal_id FK
+        numeric quantite
+        numeric ca_ttc
+        numeric ca_ht
+        numeric cout_matiere
+        numeric marge_brute
+        numeric commission
+        text source
+    }
+    
+    fait_depenses {
+        int depense_id PK
+        int date_id FK
+        int tenant_id
+        int cost_center_id FK
+        int categorie_depense_id FK
+        int fournisseur_sk FK
+        text libelle
+        numeric montant_ht
+        numeric tva
+        numeric montant_ttc
+    }
+    
+    fait_stock_quotidien {
+        int snapshot_id PK
+        int date_id FK
+        int produit_sk FK
+        numeric stock_quantite
+        numeric stock_valeur
+        numeric jours_stock
+        boolean est_rupture
+        boolean est_surstock
+    }

@@ -1,0 +1,106 @@
+[tool.poetry]
+name = "massacorp"
+version = "0.1.0"
+description = "MassaCorp - API securisee avec WireGuard"
+authors = ["MassaCorp Team"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.32.0"}
+sqlalchemy = "^2.0.36"
+psycopg2-binary = "^2.9.10"
+alembic = "^1.14.0"
+pydantic = {extras = ["email"], version = "^2.10.0"}
+pydantic-settings = "^2.6.0"
+email-validator = "^2.1.0"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.18"
+pyotp = "^2.9.0"
+redis = "^5.2.0"
+httpx = "^0.28.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.24.0"
+black = "^24.10.0"
+ruff = "^0.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py312']
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "alembic/versions",
+    "*.pyc",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade
+    "S",     # flake8-bandit (security)
+    "T20",   # flake8-print
+    "SIM",   # flake8-simplify
+    "RUF",   # Ruff-specific rules
+]
+ignore = [
+    "S101",  # Use of assert (OK in tests)
+    "S104",  # Possible binding to all interfaces
+    "S105",  # Possible hardcoded password (too many false positives)
+    "S106",  # Possible hardcoded password (too many false positives)
+    "B008",  # Do not perform function calls in argument defaults (FastAPI Depends)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106", "S311"]
+"alembic/**/*.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+force-single-line = false
+combine-as-imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "strict"
+markers = [
+    "unit: Unit tests (no external dependencies)",
+    "integration: Integration tests (require database)",
+    "security: Security-related tests",
+    "slow: Slow tests (skip with -m 'not slow')",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.bandit]
+targets = ["app"]
+exclude_dirs = ["tests", "alembic", ".venv"]
+skips = ["B101", "B104"]  # Skip assert and hardcoded binding checks
+severity = "medium"
+confidence = "medium"
+
+[tool.bandit.assert_used]
+skips = ["**/test_*.py", "**/tests/*.py"]

@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:16
+    container_name: massacorp_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-MassaCorp}
+      POSTGRES_USER: ${POSTGRES_USER:-massa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD requis}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U massa -d MassaCorp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    container_name: massacorp_api
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app  # dev-friendly (hot reload si tu veux)
+    command: >
+      bash -lc "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # Redis pour rate limiting, cache, sessions
+  redis:
+    image: redis:7-alpine
+    container_name: massacorp_redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD requis}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Frontend React
+  frontend:
+    build: ./frontend
+    container_name: massacorp_frontend
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=/api/v1
+      - VITE_TENANT_ID=1
+
+  # Serveur SMTP de test - capture tous les emails
+  # Interface web: http://localhost:8025
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: massacorp_mailhog
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    logging:
+      driver: "none"  # Reduce noise
+
+volumes:
+  pgdata:
+  redisdata:

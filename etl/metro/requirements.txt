@@ -1,0 +1,12 @@
+# ETL METRO - Dépendances Python
+# ================================
+
+# Extraction PDF
+pdfplumber>=0.10.0
+
+# Base de données PostgreSQL
+psycopg2-binary>=2.9.0
+
+# Optionnel: OCR pour PDFs scannés
+# pytesseract>=0.3.0
+# pdf2image>=1.16.0

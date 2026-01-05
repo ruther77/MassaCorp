@@ -1,0 +1,270 @@
+# MassaCorp Prometheus Alert Rules
+# Regles d'alerte pour la surveillance de l'API
+
+groups:
+  # ==========================================================================
+  # HTTP / API Alerts
+  # ==========================================================================
+  - name: api_alerts
+    interval: 30s
+    rules:
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "High HTTP error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          runbook_url: "https://wiki.massacorp.dev/runbooks/high-error-rate"
+
+      # High Latency (p95 > 1s)
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High API latency detected"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 1s)"
+          runbook_url: "https://wiki.massacorp.dev/runbooks/high-latency"
+
+      # Very High Latency (p95 > 5s)
+      - alert: VeryHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 5.0
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Very high API latency detected"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 5s)"
+
+      # Low Request Rate (potential downtime)
+      - alert: LowRequestRate
+        expr: |
+          sum(rate(http_requests_total[5m])) < 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Unusually low request rate"
+          description: "Request rate is {{ $value }} req/s - API might be down or unreachable"
+
+  # ==========================================================================
+  # Authentication & Security Alerts
+  # ==========================================================================
+  - name: security_alerts
+    interval: 30s
+    rules:
+      # Too Many Login Failures
+      - alert: TooManyLoginFailures
+        expr: |
+          sum(rate(auth_login_total{status="failure"}[5m])) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate of login failures"
+          description: "{{ $value }} failed logins/sec - possible brute force attack"
+          runbook_url: "https://wiki.massacorp.dev/runbooks/brute-force"
+
+      # Massive Login Failures (brute force)
+      - alert: BruteForceAttack
+        expr: |
+          sum(rate(auth_login_total{status="failure"}[1m])) > 50
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Possible brute force attack detected"
+          description: "{{ $value }} failed logins/sec - immediate action required"
+
+      # Rate Limit Exceeded
+      - alert: RateLimitExceeded
+        expr: |
+          sum(rate(rate_limit_hits_total[5m])) by (endpoint) > 100
+        for: 2m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate limit hits on {{ $labels.endpoint }}"
+          description: "{{ $value }} rate limit hits/sec"
+
+      # MFA Verification Failures
+      - alert: MFAVerificationFailures
+        expr: |
+          sum(rate(auth_mfa_verify_total{status="failure"}[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate of MFA verification failures"
+          description: "{{ $value }} failed MFA verifications/sec"
+
+  # ==========================================================================
+  # Database Alerts
+  # ==========================================================================
+  - name: database_alerts
+    interval: 30s
+    rules:
+      # Database Connection Error
+      - alert: DatabaseConnectionError
+        expr: |
+          up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "Cannot connect to PostgreSQL database"
+          runbook_url: "https://wiki.massacorp.dev/runbooks/database-down"
+
+      # Slow Queries
+      - alert: SlowDatabaseQueries
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(db_query_duration_seconds_bucket[5m])) by (le, query_type)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Slow database queries detected"
+          description: "P95 query time for {{ $labels.query_type }} is {{ $value | humanizeDuration }}"
+
+      # Database Pool Exhaustion
+      - alert: DatabasePoolExhausted
+        expr: |
+          db_pool_connections{status="active"} / db_pool_connections{status="total"} > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "{{ $value | humanizePercentage }} of pool in use"
+
+  # ==========================================================================
+  # Redis / Cache Alerts
+  # ==========================================================================
+  - name: redis_alerts
+    interval: 30s
+    rules:
+      # Redis Down
+      - alert: RedisDown
+        expr: |
+          up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Redis is down"
+          description: "Cannot connect to Redis - rate limiting and caching will fail"
+
+      # Redis High Memory Usage
+      - alert: RedisHighMemoryUsage
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis is using {{ $value | humanizePercentage }} of available memory"
+
+  # ==========================================================================
+  # Session Alerts
+  # ==========================================================================
+  - name: session_alerts
+    interval: 1m
+    rules:
+      # Unusual Session Creation Rate
+      - alert: HighSessionCreationRate
+        expr: |
+          sum(rate(active_sessions[5m])) > 100
+        for: 10m
+        labels:
+          severity: info
+          team: backend
+        annotations:
+          summary: "High session creation rate"
+          description: "{{ $value }} new sessions/sec - might indicate bot activity"
+
+      # Session Count Per Tenant Anomaly
+      - alert: TenantSessionAnomaly
+        expr: |
+          active_sessions > 1000
+        for: 30m
+        labels:
+          severity: info
+          team: backend
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }} has many active sessions"
+          description: "{{ $value }} active sessions for tenant"
+
+  # ==========================================================================
+  # Infrastructure Alerts
+  # ==========================================================================
+  - name: infrastructure_alerts
+    interval: 1m
+    rules:
+      # API Service Down
+      - alert: APIServiceDown
+        expr: |
+          up{job="massacorp-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "MassaCorp API is down"
+          description: "The API service is not responding"
+          runbook_url: "https://wiki.massacorp.dev/runbooks/api-down"
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: |
+          process_cpu_seconds_total > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value | humanizePercentage }}"
+
+      # Container Restart
+      - alert: ContainerRestarting
+        expr: |
+          increase(container_restart_count[1h]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Container is restarting frequently"
+          description: "{{ $value }} restarts in the last hour"

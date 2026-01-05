@@ -1,0 +1,172 @@
+# MassaCorp Alertmanager Configuration
+# Configuration pour la gestion des alertes
+
+global:
+  # Temps de resolution si l'alerte n'est plus recue
+  resolve_timeout: 5m
+
+  # Configuration SMTP pour les emails (a configurer)
+  # smtp_smarthost: 'smtp.massacorp.dev:587'
+  # smtp_from: 'alertmanager@massacorp.dev'
+  # smtp_auth_username: 'alertmanager'
+  # smtp_auth_password: '${SMTP_PASSWORD}'
+
+  # Configuration Slack (a configurer)
+  # slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+# Templates pour les notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Arbre de routage des alertes
+route:
+  # Receiver par defaut
+  receiver: 'default-receiver'
+
+  # Grouper les alertes par job et alertname
+  group_by: ['alertname', 'job', 'severity']
+
+  # Attendre 30s avant d'envoyer la premiere notification d'un groupe
+  group_wait: 30s
+
+  # Attendre 5m entre les notifications d'un meme groupe
+  group_interval: 5m
+
+  # Renvoyer les alertes toutes les 4h si elles persistent
+  repeat_interval: 4h
+
+  # Routes specifiques selon la severite
+  routes:
+    # Alertes critiques - notification immediate
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: true
+
+    # Alertes de securite - equipe securite
+    - match:
+        team: security
+      receiver: 'security-team'
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 2h
+
+    # Alertes infrastructure - equipe infra
+    - match:
+        team: infrastructure
+      receiver: 'infra-team'
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+
+    # Alertes warning - notification normale
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 1m
+      group_interval: 10m
+      repeat_interval: 6h
+
+    # Alertes info - low priority
+    - match:
+        severity: info
+      receiver: 'info-alerts'
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 24h
+
+# Definition des receivers
+receivers:
+  # Receiver par defaut
+  - name: 'default-receiver'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/alerts'
+        send_resolved: true
+
+  # Alertes critiques - tous les canaux
+  - name: 'critical-alerts'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/alerts/critical'
+        send_resolved: true
+    # Email pour les alertes critiques
+    # email_configs:
+    #   - to: 'oncall@massacorp.dev'
+    #     send_resolved: true
+    #     headers:
+    #       Subject: '[CRITICAL] {{ .GroupLabels.alertname }}'
+    # Slack pour les alertes critiques
+    # slack_configs:
+    #   - channel: '#alerts-critical'
+    #     send_resolved: true
+    #     title: '{{ .Status | toUpper }}: {{ .GroupLabels.alertname }}'
+    #     text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+  # Alertes de securite
+  - name: 'security-team'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/alerts/security'
+        send_resolved: true
+    # email_configs:
+    #   - to: 'security@massacorp.dev'
+    #     send_resolved: true
+    # slack_configs:
+    #   - channel: '#security-alerts'
+    #     send_resolved: true
+
+  # Equipe infrastructure
+  - name: 'infra-team'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/alerts/infra'
+        send_resolved: true
+    # email_configs:
+    #   - to: 'infra@massacorp.dev'
+    #     send_resolved: true
+    # slack_configs:
+    #   - channel: '#infra-alerts'
+    #     send_resolved: true
+
+  # Alertes warning
+  - name: 'warning-alerts'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/alerts/warning'
+        send_resolved: true
+
+  # Alertes info (low priority)
+  - name: 'info-alerts'
+    webhook_configs:
+      - url: 'http://localhost:5001/webhook/alerts/info'
+        send_resolved: false  # Don't notify on resolve for info
+
+# Regles d'inhibition
+# Permet de supprimer des alertes si une autre est active
+inhibit_rules:
+  # Si l'API est down, supprimer les alertes de latence
+  - source_match:
+      alertname: 'APIServiceDown'
+    target_match:
+      alertname: 'HighLatency'
+    equal: ['job']
+
+  # Si la DB est down, supprimer les alertes de slow queries
+  - source_match:
+      alertname: 'DatabaseConnectionError'
+    target_match:
+      alertname: 'SlowDatabaseQueries'
+    equal: ['job']
+
+  # Si Redis est down, supprimer les alertes de rate limiting
+  - source_match:
+      alertname: 'RedisDown'
+    target_match:
+      alertname: 'RateLimitExceeded'
+    equal: []
+
+  # Les alertes critiques suppriment les warnings du meme type
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']
