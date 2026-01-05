@@ -6,19 +6,74 @@ Ce module definit les schemas pour:
 - Termination de sessions
 - Informations sur les devices connectes
 """
+import ipaddress
 from datetime import datetime
 from typing import Optional, List
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.base import BaseSchema, TimestampSchema
+
+# Limite de longueur pour user_agent (evite les abus)
+MAX_USER_AGENT_LENGTH = 512
+
+
+def validate_ip_address(ip: str) -> str:
+    """
+    Valide une adresse IPv4 ou IPv6.
+
+    Args:
+        ip: Adresse IP a valider
+
+    Returns:
+        L'adresse IP validee
+
+    Raises:
+        ValueError: Si l'adresse IP est invalide
+    """
+    try:
+        # ipaddress.ip_address valide IPv4 et IPv6
+        ipaddress.ip_address(ip)
+        return ip
+    except ValueError:
+        raise ValueError(f"Adresse IP invalide: {ip}")
 
 
 class SessionBase(BaseSchema):
     """Schema de base pour une session"""
-    ip_address: Optional[str] = Field(None, description="Adresse IP de connexion")
-    user_agent: Optional[str] = Field(None, description="User-Agent du navigateur")
+    ip_address: Optional[str] = Field(
+        None,
+        description="Adresse IP de connexion (IPv4 ou IPv6)"
+    )
+    user_agent: Optional[str] = Field(
+        None,
+        description="User-Agent du navigateur (max 512 caracteres, tronque si plus long)"
+    )
+
+    @field_validator("ip_address")
+    @classmethod
+    def validate_ip(cls, v: Optional[str]) -> Optional[str]:
+        """Valide le format IPv4 ou IPv6."""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        return validate_ip_address(v)
+
+    @field_validator("user_agent")
+    @classmethod
+    def truncate_user_agent(cls, v: Optional[str]) -> Optional[str]:
+        """Tronque le user_agent si trop long."""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if len(v) > MAX_USER_AGENT_LENGTH:
+            return v[:MAX_USER_AGENT_LENGTH]
+        return v
 
 
 class SessionRead(SessionBase, TimestampSchema):

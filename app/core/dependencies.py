@@ -26,7 +26,7 @@ _current_tenant_id: ContextVar[Optional[int]] = ContextVar("current_tenant_id", 
 _current_user_id: ContextVar[Optional[int]] = ContextVar("current_user_id", default=None)
 from app.core.security import decode_token, InvalidTokenError, TokenExpiredError
 from app.models import User
-from app.repositories.user import UserRepository
+from app.repositories.user import UserRepository, TenantAwareUserRepository
 from app.repositories.tenant import TenantRepository
 from app.repositories.session import SessionRepository
 from app.repositories.login_attempt import LoginAttemptRepository
@@ -281,6 +281,41 @@ def get_audit_repository_rls(
 
 
 # ============================================
+# Tenant-Aware Repositories (Application-Level Isolation)
+# ============================================
+
+def get_tenant_aware_user_repository(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(lambda: None)  # Placeholder, resolved later
+) -> TenantAwareUserRepository:
+    """
+    Fournit le repository User avec isolation tenant au niveau applicatif.
+
+    SECURITE: Ce repository force le filtrage par tenant_id sur TOUTES
+    les operations (get, get_all, update, delete).
+
+    Usage dans endpoint:
+        @router.get("/users")
+        def list_users(
+            current_user: User = Depends(get_current_user),
+            user_repo: TenantAwareUserRepository = Depends(get_tenant_aware_user_repo)
+        ):
+            return user_repo.get_all()  # Filtre automatiquement par tenant
+    """
+    tenant_id = _current_tenant_id.get()
+    if tenant_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Contexte tenant non disponible - authentification requise"
+        )
+    return TenantAwareUserRepository(db, tenant_id=tenant_id)
+
+
+# Alias court pour get_tenant_aware_user_repository
+get_tenant_aware_user_repo = get_tenant_aware_user_repository
+
+
+# ============================================
 # Repositories
 # ============================================
 
@@ -473,7 +508,10 @@ def get_password_reset_service(
 def get_gdpr_service(
     user_repo: UserRepository = Depends(get_user_repository),
     session_repo: SessionRepository = Depends(get_session_repository),
-    audit_repo: AuditLogRepository = Depends(get_audit_repository)
+    audit_repo: AuditLogRepository = Depends(get_audit_repository),
+    mfa_secret_repo: MFASecretRepository = Depends(get_mfa_secret_repository),
+    mfa_recovery_repo: MFARecoveryCodeRepository = Depends(get_mfa_recovery_code_repository),
+    api_key_repo: APIKeyRepository = Depends(get_api_key_repository)
 ) -> GDPRService:
     """
     Fournit le service GDPR pour la conformite.
@@ -487,7 +525,10 @@ def get_gdpr_service(
     return GDPRService(
         user_repository=user_repo,
         session_repository=session_repo,
-        audit_repository=audit_repo
+        audit_repository=audit_repo,
+        mfa_secret_repository=mfa_secret_repo,
+        mfa_recovery_repository=mfa_recovery_repo,
+        api_key_repository=api_key_repo
     )
 
 

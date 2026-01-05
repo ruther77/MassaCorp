@@ -129,8 +129,8 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
 
 @pytest.fixture
 def sample_password() -> str:
-    """Mot de passe valide pour les tests"""
-    return "SecureP@ssw0rd123!"
+    """Mot de passe valide pour les tests (non compromis dans HIBP)"""
+    return "MassaCorp2024$xK7vQ!"
 
 
 @pytest.fixture

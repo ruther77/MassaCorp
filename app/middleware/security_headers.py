@@ -29,12 +29,25 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     # Headers de securite a ajouter a toutes les responses
     security_headers = {
-        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
         "Referrer-Policy": "strict-origin-when-cross-origin",
-        "X-XSS-Protection": "1; mode=block",
+        "X-XSS-Protection": "0",  # Desactive - CSP est plus efficace
         "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+        # Content-Security-Policy - Protection XSS et injection
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "  # unsafe-inline pour styles inline
+            "img-src 'self' data: https:; "  # data: pour QR codes base64
+            "font-src 'self'; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "  # Equivalent a X-Frame-Options: DENY
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "upgrade-insecure-requests"
+        ),
     }
 
     # Endpoints qui necessitent Cache-Control: no-store

@@ -15,6 +15,8 @@ from app.core.exceptions import NotFound
 from app.repositories.user import UserRepository
 from app.repositories.session import SessionRepository
 from app.repositories.audit_log import AuditLogRepository
+from app.repositories.mfa import MFASecretRepository, MFARecoveryCodeRepository
+from app.repositories.api_key import APIKeyRepository
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,10 @@ class GDPRService:
         self,
         user_repository: UserRepository,
         session_repository: SessionRepository,
-        audit_repository: AuditLogRepository
+        audit_repository: AuditLogRepository,
+        mfa_secret_repository: Optional[MFASecretRepository] = None,
+        mfa_recovery_repository: Optional[MFARecoveryCodeRepository] = None,
+        api_key_repository: Optional[APIKeyRepository] = None
     ):
         """
         Initialise le service GDPR.
@@ -43,10 +48,16 @@ class GDPRService:
             user_repository: Repository pour les utilisateurs
             session_repository: Repository pour les sessions
             audit_repository: Repository pour les logs d'audit
+            mfa_secret_repository: Repository pour les secrets MFA
+            mfa_recovery_repository: Repository pour les codes de recuperation MFA
+            api_key_repository: Repository pour les API keys
         """
         self.user_repo = user_repository
         self.session_repo = session_repository
         self.audit_repo = audit_repository
+        self.mfa_secret_repo = mfa_secret_repository
+        self.mfa_recovery_repo = mfa_recovery_repository
+        self.api_key_repo = api_key_repository
 
     def export_user_data(self, user_id: int) -> Dict[str, Any]:
         """
@@ -73,6 +84,53 @@ class GDPRService:
 
         # Recuperer les logs d'audit
         audit_logs = self.audit_repo.get_by_user(user_id, limit=1000)
+
+        # Recuperer les donnees MFA (si repository disponible)
+        mfa_data = None
+        if self.mfa_secret_repo:
+            mfa_secret = self.mfa_secret_repo.get_by_user_id(user_id)
+            if mfa_secret:
+                mfa_data = {
+                    "enabled": mfa_secret.enabled,
+                    "created_at": mfa_secret.created_at.isoformat() if mfa_secret.created_at else None,
+                    "last_used_at": mfa_secret.last_used_at.isoformat() if mfa_secret.last_used_at else None,
+                }
+
+        # Recuperer les codes de recuperation MFA (si repository disponible)
+        recovery_codes_data = []
+        if self.mfa_recovery_repo:
+            recovery_codes = self.mfa_recovery_repo.get_all_for_user(user_id)
+            recovery_codes_data = [
+                {
+                    "id": code.id,
+                    "is_used": code.used_at is not None,
+                    "used_at": code.used_at.isoformat() if code.used_at else None,
+                    "created_at": code.created_at.isoformat() if code.created_at else None,
+                }
+                for code in recovery_codes
+            ]
+
+        # Recuperer les API keys creees par l'utilisateur (si repository disponible)
+        api_keys_data = []
+        if self.api_key_repo:
+            # Recuperer les API keys du tenant de l'utilisateur
+            api_keys = self.api_key_repo.get_by_tenant(user.tenant_id, include_revoked=True)
+            # Filtrer celles creees par cet utilisateur
+            api_keys_data = [
+                {
+                    "id": key.id,
+                    "name": key.name,
+                    "key_prefix": key.key_prefix,
+                    "scopes": key.scopes,
+                    "created_at": key.created_at.isoformat() if key.created_at else None,
+                    "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+                    "revoked_at": key.revoked_at.isoformat() if key.revoked_at else None,
+                    "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
+                    "is_valid": key.is_valid,
+                }
+                for key in api_keys
+                if key.created_by_user_id == user_id
+            ]
 
         # Compiler l'export
         export_data = {
@@ -104,6 +162,9 @@ class GDPRService:
                 }
                 for log in audit_logs
             ],
+            "mfa_data": mfa_data,
+            "recovery_codes": recovery_codes_data,
+            "api_keys": api_keys_data,
             "data_retention": {
                 "policy": "12 mois pour les logs d'audit, sessions expirent apres 30 jours",
                 "contact": "privacy@massacorp.dev"
@@ -146,6 +207,13 @@ class GDPRService:
             raise NotFound("User")
 
         tenant_id = user.tenant_id
+
+        # Supprimer les donnees MFA (avant suppression user pour eviter FK errors)
+        if self.mfa_secret_repo:
+            self.mfa_secret_repo.delete_by_user_id(user_id)
+
+        if self.mfa_recovery_repo:
+            self.mfa_recovery_repo.delete_all_for_user(user_id)
 
         # Revoquer toutes les sessions d'abord
         self.session_repo.invalidate_all_sessions(user_id=user_id)
@@ -212,6 +280,13 @@ class GDPRService:
             "is_active": False,
         })
 
+        # Supprimer les donnees MFA (l'utilisateur ne pourra plus se connecter)
+        if self.mfa_secret_repo:
+            self.mfa_secret_repo.delete_by_user_id(user_id)
+
+        if self.mfa_recovery_repo:
+            self.mfa_recovery_repo.delete_all_for_user(user_id)
+
         # Revoquer toutes les sessions
         self.session_repo.invalidate_all_sessions(user_id=user_id)
 
@@ -271,6 +346,13 @@ class GDPRService:
                     "purpose": "Authentification multi-facteur",
                     "retention": "Jusqu'a desactivation MFA",
                     "legal_basis": "Consentement explicite"
+                },
+                {
+                    "category": "API Keys",
+                    "fields": ["api_key_hash", "api_key_name", "scopes", "usage_logs"],
+                    "purpose": "Authentification machine-to-machine (M2M)",
+                    "retention": "Jusqu'a revocation ou expiration",
+                    "legal_basis": "Execution du contrat"
                 }
             ],
             "data_processors": [

@@ -15,9 +15,15 @@ Modules disponibles:
 - password_reset: Tokens de reinitialisation de mot de passe
 - rbac: Roles, Permissions et Assignations utilisateur
 """
-from app.repositories.base import BaseRepository, RepositoryException
+from app.repositories.base import (
+    BaseRepository,
+    TenantAwareBaseRepository,
+    RepositoryException,
+    TenantIsolationError,
+    PaginationError,
+)
 from app.repositories.tenant import TenantRepository
-from app.repositories.user import UserRepository
+from app.repositories.user import UserRepository, TenantAwareUserRepository
 from app.repositories.audit_log import AuditLogRepository
 from app.repositories.login_attempt import LoginAttemptRepository
 from app.repositories.session import SessionRepository
@@ -31,10 +37,14 @@ from app.repositories.oauth import OAuthRepository
 __all__ = [
     # Base
     "BaseRepository",
+    "TenantAwareBaseRepository",
     "RepositoryException",
+    "TenantIsolationError",
+    "PaginationError",
     # Phase 1
     "TenantRepository",
     "UserRepository",
+    "TenantAwareUserRepository",
     # Phase 2 - Audit et Securite
     "AuditLogRepository",
     "LoginAttemptRepository",

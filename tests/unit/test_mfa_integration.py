@@ -49,23 +49,29 @@ class TestAuthServiceMFAIntegration:
     @pytest.fixture
     def mock_user_with_mfa(self):
         """User avec MFA active"""
+        from app.core.security import hash_password
+
         user = MagicMock()
         user.id = 1
         user.email = "user@massacorp.local"
         user.tenant_id = 1
         user.is_active = True
-        user.password_hash = "$2b$12$test_hash"
+        user.is_verified = True
+        user.password_hash = hash_password("TestPassword123!")
         return user
 
     @pytest.fixture
     def mock_user_without_mfa(self):
         """User sans MFA"""
+        from app.core.security import hash_password
+
         user = MagicMock()
         user.id = 2
         user.email = "nomfa@massacorp.local"
         user.tenant_id = 1
         user.is_active = True
-        user.password_hash = "$2b$12$test_hash"
+        user.is_verified = True
+        user.password_hash = hash_password("TestPassword123!")
         return user
 
     @pytest.fixture
@@ -120,7 +126,7 @@ class TestAuthServiceMFAIntegration:
         mock_mfa_service.is_mfa_enabled.return_value = True
         mock_session_service.is_account_locked.return_value = False
 
-        with patch("app.services.auth.verify_password", return_value=True):
+        with patch("app.services.auth.verify_and_rehash", return_value=(True, None)):
             result = auth_service_with_mfa.login(
                 email="user@massacorp.local",
                 password="SecureP@ss123!",
@@ -148,7 +154,7 @@ class TestAuthServiceMFAIntegration:
         mock_mfa_service.is_mfa_enabled.return_value = True
         mock_session_service.is_account_locked.return_value = False
 
-        with patch("app.services.auth.verify_password", return_value=True):
+        with patch("app.services.auth.verify_and_rehash", return_value=(True, None)):
             result = auth_service_with_mfa.login(
                 email="user@massacorp.local",
                 password="SecureP@ss123!",
@@ -178,7 +184,7 @@ class TestAuthServiceMFAIntegration:
         mock_session_service.is_account_locked.return_value = False
         mock_session_service.create_session.return_value = MagicMock(id=uuid4())
 
-        with patch("app.services.auth.verify_password", return_value=True):
+        with patch("app.services.auth.verify_and_rehash", return_value=(True, None)):
             with patch("app.services.auth.create_access_token", return_value="access_token"):
                 with patch("app.services.auth.create_refresh_token", return_value="refresh_token"):
                     result = auth_service_with_mfa.login(
@@ -308,7 +314,7 @@ class TestAuthServiceMFAIntegration:
         mock_mfa_service.is_mfa_enabled.return_value = True
         mock_session_service.is_account_locked.return_value = False
 
-        with patch("app.services.auth.verify_password", return_value=True):
+        with patch("app.services.auth.verify_and_rehash", return_value=(True, None)):
             result = auth_service_with_mfa.login(
                 email="user@massacorp.local",
                 password="SecureP@ss123!",
@@ -342,7 +348,7 @@ class TestAuthServiceMFAIntegration:
         mock_mfa_service.is_mfa_enabled.return_value = True
         mock_session_service.is_account_locked.return_value = False
 
-        with patch("app.services.auth.verify_password", return_value=True):
+        with patch("app.services.auth.verify_and_rehash", return_value=(True, None)):
             result = auth_service_with_mfa.login(
                 email="user@massacorp.local",
                 password="SecureP@ss123!",
@@ -371,7 +377,7 @@ class TestAuthServiceMFAIntegration:
         mock_session_service.is_account_locked.return_value = False
         mock_session_service.create_session.return_value = MagicMock(id=uuid4())
 
-        with patch("app.services.auth.verify_password", return_value=True):
+        with patch("app.services.auth.verify_and_rehash", return_value=(True, None)):
             with patch("app.services.auth.create_access_token", return_value="token"):
                 with patch("app.services.auth.create_refresh_token", return_value="token"):
                     auth_service_with_mfa.login(

@@ -34,6 +34,9 @@ from app.schemas.gdpr import (
     GDPRUserData,
     GDPRSessionData,
     GDPRAuditData,
+    GDPRMFAData,
+    GDPRRecoveryCodeData,
+    GDPRAPIKeyData,
     GDPRRetentionInfo,
     DataCategory,
     DataProcessor,
@@ -58,11 +61,19 @@ def _build_export_response(export_data: dict) -> GDPRExportResponse:
     Returns:
         GDPRExportResponse formate
     """
+    # Build MFA data if present
+    mfa_data = None
+    if export_data.get("mfa_data"):
+        mfa_data = GDPRMFAData(**export_data["mfa_data"])
+
     return GDPRExportResponse(
         export_date=export_data["export_date"],
         user=GDPRUserData(**export_data["user"]),
         sessions=[GDPRSessionData(**s) for s in export_data["sessions"]],
         audit_logs=[GDPRAuditData(**a) for a in export_data["audit_logs"]],
+        mfa_data=mfa_data,
+        recovery_codes=[GDPRRecoveryCodeData(**c) for c in export_data.get("recovery_codes", [])],
+        api_keys=[GDPRAPIKeyData(**k) for k in export_data.get("api_keys", [])],
         data_retention=GDPRRetentionInfo(**export_data["data_retention"])
     )
 

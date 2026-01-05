@@ -6,10 +6,18 @@ Ce module fournit le service de gestion de l'authentification multi-facteur:
 - Setup MFA avec generation de QR code
 - Gestion des codes de recuperation
 - Activation/desactivation MFA
+- Protection brute-force avec lockout par utilisateur
 
 Le service utilise pyotp pour la generation et verification TOTP.
+
+SECURITE:
+- Protection anti-replay integree
+- Lockout apres 5 echecs consecutifs (30 minutes)
+- Stockage Redis des tentatives (fallback memoire)
 """
+import logging
 import secrets
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,6 +27,8 @@ import pyotp
 from app.core.crypto import encrypt_totp_secret, decrypt_totp_secret, is_encrypted_secret
 from app.repositories.mfa import MFASecretRepository, MFARecoveryCodeRepository
 from app.services.exceptions import ServiceException
+
+logger = logging.getLogger(__name__)
 
 
 class MFAAlreadyEnabledError(ServiceException):
@@ -53,6 +63,18 @@ class InvalidMFACodeError(ServiceException):
         )
 
 
+class MFALockoutError(ServiceException):
+    """Compte verrouille suite a trop de tentatives MFA echouees"""
+
+    def __init__(self, lockout_minutes: int = 30, attempts: int = 5):
+        super().__init__(
+            message=f"Compte verrouille pendant {lockout_minutes} minutes apres {attempts} tentatives echouees",
+            code="MFA_LOCKOUT"
+        )
+        self.lockout_minutes = lockout_minutes
+        self.attempts = attempts
+
+
 class MFAService:
     """
     Service pour la gestion de l'authentification multi-facteur.
@@ -62,6 +84,12 @@ class MFAService:
     - Verification des codes TOTP
     - Gestion des codes de recuperation
     - Activation/desactivation MFA
+    - Protection brute-force avec lockout par utilisateur
+
+    SECURITE:
+    - Lockout: 5 echecs = 30 minutes de blocage
+    - Stockage Redis ou memoire (fallback) des tentatives
+    - Reset automatique apres verification reussie
     """
 
     # Configuration par defaut
@@ -69,11 +97,20 @@ class MFAService:
     RECOVERY_CODES_COUNT = 10
     TOTP_WINDOW = 1  # Accepte +/- 1 intervalle (30 sec)
 
+    # Configuration brute-force protection
+    MAX_FAILED_ATTEMPTS = 5  # Nombre max d'echecs avant lockout
+    LOCKOUT_MINUTES = 30  # Duree du lockout en minutes
+    REDIS_KEY_PREFIX = "mfa_attempts:"  # Prefix pour cles Redis
+
+    # Fallback memoire si Redis indisponible
+    _memory_attempts: Dict[int, List[float]] = defaultdict(list)
+
     def __init__(
         self,
         mfa_secret_repository: MFASecretRepository,
         mfa_recovery_code_repository: MFARecoveryCodeRepository,
-        issuer: Optional[str] = None
+        issuer: Optional[str] = None,
+        redis_client: Optional[Any] = None
     ):
         """
         Initialise le service MFA.
@@ -82,10 +119,132 @@ class MFAService:
             mfa_secret_repository: Repository pour les secrets MFA
             mfa_recovery_code_repository: Repository pour les codes de recuperation
             issuer: Nom de l'emetteur pour les URI TOTP (defaut: MassaCorp)
+            redis_client: Client Redis optionnel pour stockage des tentatives
         """
         self.mfa_secret_repository = mfa_secret_repository
         self.mfa_recovery_code_repository = mfa_recovery_code_repository
         self.issuer = issuer or self.DEFAULT_ISSUER
+        self._redis_client = redis_client
+
+        # Tenter de recuperer Redis si non fourni
+        if self._redis_client is None:
+            try:
+                from app.core.redis import get_redis_client
+                self._redis_client = get_redis_client()
+            except Exception as e:
+                logger.warning(f"Redis non disponible pour MFA lockout: {e}")
+
+    # ========================================================================
+    # Brute-Force Protection
+    # ========================================================================
+
+    def _get_lockout_key(self, user_id: int) -> str:
+        """Retourne la cle Redis pour les tentatives d'un utilisateur."""
+        return f"{self.REDIS_KEY_PREFIX}{user_id}"
+
+    def _check_lockout(self, user_id: int) -> None:
+        """
+        Verifie si un utilisateur est en lockout.
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Raises:
+            MFALockoutError: Si l'utilisateur est verrouille
+        """
+        failed_count = self._get_failed_attempts(user_id)
+
+        if failed_count >= self.MAX_FAILED_ATTEMPTS:
+            logger.warning(
+                f"MFA lockout actif pour user_id={user_id}: "
+                f"{failed_count} tentatives echouees"
+            )
+            raise MFALockoutError(
+                lockout_minutes=self.LOCKOUT_MINUTES,
+                attempts=self.MAX_FAILED_ATTEMPTS
+            )
+
+    def _get_failed_attempts(self, user_id: int) -> int:
+        """
+        Recupere le nombre de tentatives echouees recentes.
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Returns:
+            Nombre de tentatives echouees dans la fenetre de lockout
+        """
+        if self._redis_client:
+            try:
+                key = self._get_lockout_key(user_id)
+                count = self._redis_client.get(key)
+                return int(count) if count else 0
+            except Exception as e:
+                logger.error(f"Erreur Redis get_failed_attempts: {e}")
+
+        # Fallback memoire
+        import time
+        cutoff = time.time() - (self.LOCKOUT_MINUTES * 60)
+        self._memory_attempts[user_id] = [
+            ts for ts in self._memory_attempts[user_id]
+            if ts > cutoff
+        ]
+        return len(self._memory_attempts[user_id])
+
+    def _record_failed_attempt(self, user_id: int) -> int:
+        """
+        Enregistre une tentative echouee.
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Returns:
+            Nombre total de tentatives echouees
+        """
+        if self._redis_client:
+            try:
+                key = self._get_lockout_key(user_id)
+                pipe = self._redis_client.pipeline()
+                pipe.incr(key)
+                pipe.expire(key, self.LOCKOUT_MINUTES * 60)
+                results = pipe.execute()
+                count = results[0]
+                logger.info(
+                    f"MFA tentative echouee user_id={user_id}: "
+                    f"{count}/{self.MAX_FAILED_ATTEMPTS}"
+                )
+                return count
+            except Exception as e:
+                logger.error(f"Erreur Redis record_failed_attempt: {e}")
+
+        # Fallback memoire
+        import time
+        self._memory_attempts[user_id].append(time.time())
+        count = len(self._memory_attempts[user_id])
+        logger.info(
+            f"MFA tentative echouee (memoire) user_id={user_id}: "
+            f"{count}/{self.MAX_FAILED_ATTEMPTS}"
+        )
+        return count
+
+    def _reset_failed_attempts(self, user_id: int) -> None:
+        """
+        Reinitialise les tentatives echouees apres succes.
+
+        Args:
+            user_id: ID de l'utilisateur
+        """
+        if self._redis_client:
+            try:
+                key = self._get_lockout_key(user_id)
+                self._redis_client.delete(key)
+                logger.debug(f"MFA tentatives reset pour user_id={user_id}")
+            except Exception as e:
+                logger.error(f"Erreur Redis reset_failed_attempts: {e}")
+
+        # Reset memoire aussi
+        if user_id in self._memory_attempts:
+            del self._memory_attempts[user_id]
 
     # ========================================================================
     # Generation de secrets et URIs
@@ -254,11 +413,12 @@ class MFAService:
         window: Optional[int] = None
     ) -> bool:
         """
-        Verifie un code TOTP pour un utilisateur avec protection anti-replay.
+        Verifie un code TOTP pour un utilisateur avec protection anti-replay et lockout.
 
-        La protection anti-replay empeche la reutilisation d'un code TOTP
-        dans la meme fenetre de 30 secondes. Cela protege contre les attaques
-        ou un code intercepte serait rejoue.
+        SECURITE:
+        - Protection anti-replay empeche la reutilisation d'un code TOTP
+        - Lockout apres MAX_FAILED_ATTEMPTS echecs consecutifs
+        - Reset du compteur apres succes
 
         Args:
             user_id: ID de l'utilisateur
@@ -267,16 +427,24 @@ class MFAService:
 
         Returns:
             True si le code est valide et non-replay, False sinon
+
+        Raises:
+            MFALockoutError: Si l'utilisateur est verrouille
         """
+        # SECURITE: Verifier le lockout AVANT toute autre operation
+        self._check_lockout(user_id)
+
         # Utiliser la methode commune pour recuperer le secret
         result = self._get_decrypted_secret(user_id)
         if result is None:
+            self._record_failed_attempt(user_id)
             return False
 
         mfa_secret, secret = result
 
         # Verification specifique: MFA doit etre active
         if not mfa_secret.enabled:
+            self._record_failed_attempt(user_id)
             return False
 
         totp = pyotp.TOTP(secret)
@@ -288,6 +456,7 @@ class MFAService:
         if mfa_secret.last_totp_window is not None:
             if mfa_secret.last_totp_window >= current_window:
                 # Code deja utilise dans cette fenetre - replay attack!
+                self._record_failed_attempt(user_id)
                 return False
 
         # Verifier le code TOTP
@@ -297,6 +466,11 @@ class MFAService:
             # Mettre a jour le dernier window utilise (anti-replay)
             self.mfa_secret_repository.update_last_totp_window(user_id, current_window)
             self.mfa_secret_repository.update_last_used(user_id)
+            # Reset du compteur de tentatives echouees
+            self._reset_failed_attempts(user_id)
+        else:
+            # Enregistrer l'echec
+            self._record_failed_attempt(user_id)
 
         return valid
 

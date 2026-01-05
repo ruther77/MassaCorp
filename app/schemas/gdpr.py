@@ -47,6 +47,34 @@ class GDPRAuditData(BaseSchema):
     ip_address: Optional[str]
 
 
+class GDPRMFAData(BaseSchema):
+    """Donnees MFA pour export"""
+    enabled: bool
+    created_at: Optional[str]
+    last_used_at: Optional[str]
+
+
+class GDPRRecoveryCodeData(BaseSchema):
+    """Donnees de code de recuperation pour export"""
+    id: int
+    is_used: bool
+    used_at: Optional[str]
+    created_at: Optional[str]
+
+
+class GDPRAPIKeyData(BaseSchema):
+    """Donnees d'API key pour export"""
+    id: int
+    name: str
+    key_prefix: str
+    scopes: Optional[List[str]]
+    created_at: Optional[str]
+    expires_at: Optional[str]
+    revoked_at: Optional[str]
+    last_used_at: Optional[str]
+    is_valid: bool
+
+
 class GDPRRetentionInfo(BaseSchema):
     """Informations sur la retention des donnees"""
     policy: str
@@ -63,6 +91,9 @@ class GDPRExportResponse(BaseSchema):
     user: GDPRUserData
     sessions: List[GDPRSessionData]
     audit_logs: List[GDPRAuditData]
+    mfa_data: Optional[GDPRMFAData] = None
+    recovery_codes: List[GDPRRecoveryCodeData] = []
+    api_keys: List[GDPRAPIKeyData] = []
     data_retention: GDPRRetentionInfo
 
 

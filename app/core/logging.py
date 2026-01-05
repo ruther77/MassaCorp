@@ -48,7 +48,8 @@ SENSITIVE_FIELDS: Set[str] = {
     "social_security",
     "private_key",
     "encryption_key",
-    "email",
+    # Note: "email" removed - emails are NOT redacted but can be masked using mask_email()
+    # for GDPR compliance if needed in specific contexts
 }
 
 REDACTED = "[REDACTED]"

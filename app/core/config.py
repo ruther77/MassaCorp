@@ -38,12 +38,19 @@ class Settings(BaseSettings):
 
     # Redis
     REDIS_URL: str = "redis://:password@localhost:6379/0"
+    REDIS_MAX_CONNECTIONS: int = 10  # Max connections in pool
+    REDIS_HEALTH_CHECK_INTERVAL: int = 30  # Seconds between health checks
+    REDIS_SOCKET_TIMEOUT: int = 5  # Socket timeout in seconds
+    REDIS_SOCKET_CONNECT_TIMEOUT: int = 5  # Connection timeout in seconds
 
     # Database Pool Configuration
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 10
     DATABASE_POOL_TIMEOUT: int = 30
     DATABASE_POOL_RECYCLE: int = 1800  # 30 minutes
+
+    # Password Security
+    PASSWORD_CHECK_HIBP: bool = True  # Check passwords against HaveIBeenPwned
 
     # HTTP Client Timeouts
     HTTP_TIMEOUT: int = 30  # seconds

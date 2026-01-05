@@ -43,13 +43,14 @@ class TestPasswordHashing:
         assert result != sample_password
 
     @pytest.mark.unit
-    def test_hash_password_uses_bcrypt_format(self, sample_password: str):
-        """Le hash doit etre au format bcrypt ($2b$...)"""
+    def test_hash_password_uses_argon2id_format(self, sample_password: str):
+        """Le hash doit etre au format Argon2id par defaut ($argon2id$...)"""
         from app.core.security import hash_password
 
         result = hash_password(sample_password)
 
-        assert result.startswith("$2b$") or result.startswith("$2a$")
+        # Argon2id est le format par defaut depuis migration bcrypt->Argon2id
+        assert result.startswith("$argon2id$")
 
     @pytest.mark.unit
     def test_hash_password_different_each_time(self, sample_password: str):
@@ -79,15 +80,16 @@ class TestPasswordHashing:
 
     @pytest.mark.unit
     @pytest.mark.slow
-    def test_hash_password_cost_factor_adequate(self, sample_password: str):
-        """Le cost factor bcrypt doit etre >= 12 (securite production)"""
+    def test_hash_password_argon2id_params_adequate(self, sample_password: str):
+        """Les parametres Argon2id doivent etre conformes OWASP."""
         from app.core.security import hash_password
 
         result = hash_password(sample_password)
 
-        # Format bcrypt: $2b$[cost]$[salt+hash]
-        cost = int(result.split("$")[2])
-        assert cost >= 12, f"Cost factor {cost} < 12 - pas assez securise"
+        # Format Argon2id: $argon2id$v=19$m=65536,t=3,p=4$[salt]$[hash]
+        assert "$argon2id$" in result
+        assert "m=65536" in result  # 64 MiB memory (OWASP)
+        assert "t=3" in result      # 3 iterations minimum (OWASP)
 
 
 class TestPasswordVerification:

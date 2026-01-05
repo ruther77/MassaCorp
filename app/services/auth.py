@@ -27,6 +27,7 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
     verify_password,
+    verify_and_rehash,
     get_token_payload,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_MINUTES,
@@ -176,9 +177,16 @@ class AuthService:
             verify_password(password, user.password_hash)
             return None
 
-        # Verifier le mot de passe
-        if not verify_password(password, user.password_hash):
+        # Verifier le mot de passe et migration Argon2id si necessaire
+        is_valid, new_hash = verify_and_rehash(password, user.password_hash)
+
+        if not is_valid:
             return None
+
+        # Re-hash progressif bcrypt -> Argon2id
+        if new_hash:
+            self.user_repository.update_password(user.id, new_hash)
+            logger.info(f"Password rehashed to Argon2id for user_id={user.id}")
 
         return user
 
@@ -1042,7 +1050,21 @@ class AuthService:
             logger.error("MFAService non configure pour complete_mfa_login")
             return None
 
-        if not self.mfa_service.verify_totp(user_id=user_id, code=totp_code):
+        try:
+            totp_valid = self.mfa_service.verify_totp(user_id=user_id, code=totp_code)
+        except Exception as e:
+            # MFALockoutError ou autre exception - re-raise pour l'endpoint
+            # L'endpoint doit gerer MFALockoutError avec HTTP 429
+            self._log_audit_event(
+                action="mfa_verification_failed",
+                user_id=user_id,
+                tenant_id=tenant_id,
+                ip_address=ip_address,
+                details={"reason": "lockout_or_error", "error": str(e)}
+            )
+            raise
+
+        if not totp_valid:
             # Logger l'echec MFA
             self._log_audit_event(
                 action="mfa_verification_failed",

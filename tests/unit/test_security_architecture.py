@@ -32,9 +32,9 @@ class TestTimingSafeLogin:
         from app.core import security
 
         assert hasattr(security, 'DUMMY_HASH')
-        # Doit être un hash bcrypt valide
-        assert security.DUMMY_HASH.startswith('$2')
-        assert len(security.DUMMY_HASH) >= 59
+        # Doit etre un hash Argon2id valide (migration bcrypt->Argon2id)
+        assert security.DUMMY_HASH.startswith('$argon2')
+        assert len(security.DUMMY_HASH) >= 50
 
     @pytest.mark.unit
     def test_verify_password_uses_constant_time(self):
@@ -366,7 +366,7 @@ class TestSchemasStrict:
         with pytest.raises(ValidationError):
             UserCreate(
                 email="test@example.com",
-                password="SecureP@ss123!",
+                password="MassaCorp2024$xK7vQ!",
                 is_admin=True  # Champ inconnu potentiellement dangereux
             )
 

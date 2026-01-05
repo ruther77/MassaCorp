@@ -17,6 +17,7 @@ pydantic-settings = "^2.6.0"
 email-validator = "^2.1.0"
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+argon2-cffi = "^23.1.0"  # Password hashing (upgrade from bcrypt)
 python-multipart = "^0.0.18"
 pyotp = "^2.9.0"
 redis = "^5.2.0"

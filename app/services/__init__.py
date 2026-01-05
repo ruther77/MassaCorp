@@ -27,7 +27,7 @@ from app.services.captcha import CaptchaService, get_captcha_service
 from app.services.api_key import APIKeyService
 from app.services.password_reset import PasswordResetService
 from app.services.gdpr import GDPRService
-from app.services.mfa import MFAService
+from app.services.mfa import MFAService, MFALockoutError, InvalidMFACodeError, MFANotConfiguredError
 from app.services.exceptions import (
     ServiceException,
     EmailAlreadyExistsError,
@@ -136,4 +136,8 @@ __all__ = [
     "PasswordResetTokenExpired",
     "TokenAlreadyUsed",
     "PasswordResetInvalidToken",
+    # Exceptions MFA
+    "MFALockoutError",
+    "InvalidMFACodeError",
+    "MFANotConfiguredError",
 ]

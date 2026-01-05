@@ -10,12 +10,18 @@ from pydantic import EmailStr, Field, field_validator
 from app.schemas.base import BaseSchema, TimestampSchema
 
 
+import re
+
+# Regex E.164: + suivi de 1-15 chiffres (standard international)
+E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
+
+
 class UserBase(BaseSchema):
     """Champs communs pour User"""
     email: EmailStr = Field(..., description="Adresse email")
     first_name: Optional[str] = Field(None, max_length=100, description="Prenom")
     last_name: Optional[str] = Field(None, max_length=100, description="Nom")
-    phone: Optional[str] = Field(None, max_length=20, description="Telephone")
+    phone: Optional[str] = Field(None, max_length=20, description="Telephone au format E.164 (+33612345678)")
 
     @field_validator("email")
     @classmethod
@@ -27,6 +33,21 @@ class UserBase(BaseSchema):
     def strip_names(cls, v: Optional[str]) -> Optional[str]:
         if v:
             return v.strip()
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_e164(cls, v: Optional[str]) -> Optional[str]:
+        """Valide le format E.164 pour le telephone (+33612345678)."""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if not E164_PATTERN.match(v):
+            raise ValueError(
+                "Telephone invalide: format E.164 requis (+XXXXXXXXXXX, ex: +33612345678)"
+            )
         return v
 
 
@@ -53,13 +74,28 @@ class UserUpdate(BaseSchema):
     """Schema pour mise a jour d'utilisateur"""
     first_name: Optional[str] = Field(None, max_length=100)
     last_name: Optional[str] = Field(None, max_length=100)
-    phone: Optional[str] = Field(None, max_length=20)
+    phone: Optional[str] = Field(None, max_length=20, description="Telephone au format E.164")
 
     @field_validator("first_name", "last_name")
     @classmethod
     def strip_names(cls, v: Optional[str]) -> Optional[str]:
         if v:
             return v.strip()
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_e164(cls, v: Optional[str]) -> Optional[str]:
+        """Valide le format E.164 pour le telephone."""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if not E164_PATTERN.match(v):
+            raise ValueError(
+                "Telephone invalide: format E.164 requis (+XXXXXXXXXXX, ex: +33612345678)"
+            )
         return v
 
 

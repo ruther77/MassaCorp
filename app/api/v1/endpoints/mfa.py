@@ -33,6 +33,7 @@ from app.services.mfa import (
     MFAAlreadyEnabledError,
     MFANotConfiguredError,
     InvalidMFACodeError,
+    MFALockoutError,
 )
 
 
@@ -217,6 +218,8 @@ def verify_totp(
     - Operations sensibles necessitant re-authentification MFA
 
     Retourne valid: True/False.
+
+    SECURITE: Lockout apres 5 echecs consecutifs (30 min).
     """
     # Verifier si MFA est configure et active
     if not mfa_service.is_mfa_required(current_user.id):
@@ -225,10 +228,17 @@ def verify_totp(
             detail="MFA n'est pas active pour cet utilisateur"
         )
 
-    valid = mfa_service.verify_totp(
-        user_id=current_user.id,
-        code=request.code
-    )
+    try:
+        valid = mfa_service.verify_totp(
+            user_id=current_user.id,
+            code=request.code
+        )
+    except MFALockoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=e.message,
+            headers={"Retry-After": str(e.lockout_minutes * 60)}
+        )
 
     if not valid:
         raise HTTPException(

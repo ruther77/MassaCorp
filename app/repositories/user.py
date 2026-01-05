@@ -1,6 +1,11 @@
 """
 Repository pour les Users
 Gestion des utilisateurs avec isolation multi-tenant
+
+IMPORTANT SECURITE:
+- Pour les operations POST-authentification, utiliser TenantAwareUserRepository
+- UserRepository (sans tenant) ne doit etre utilise QUE pour l'authentification
+  (get_by_email_and_tenant) ou par des superusers.
 """
 import logging
 import warnings
@@ -11,9 +16,171 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import User
-from app.repositories.base import BaseRepository
+from app.repositories.base import BaseRepository, TenantAwareBaseRepository
 
 logger = logging.getLogger(__name__)
+
+
+class TenantAwareUserRepository(TenantAwareBaseRepository[User]):
+    """
+    Repository User avec isolation multi-tenant OBLIGATOIRE.
+
+    Toutes les operations sont automatiquement filtrees par tenant_id.
+    Utiliser ce repository pour TOUTES les operations post-authentification.
+
+    Usage:
+        repo = TenantAwareUserRepository(session, tenant_id=current_user.tenant_id)
+        user = repo.get(42)  # Ne retourne QUE si user.tenant_id == tenant_id
+    """
+
+    model = User
+
+    def get_by_email(self, email: str) -> Optional[User]:
+        """
+        Recupere un utilisateur par email DANS le tenant courant.
+
+        Args:
+            email: Email de l'utilisateur
+
+        Returns:
+            L'utilisateur trouve ou None
+        """
+        return (
+            self._tenant_query()
+            .filter(func.lower(self.model.email) == email.lower())
+            .first()
+        )
+
+    def get_active_users(
+        self,
+        skip: int = 0,
+        limit: int = 100
+    ) -> List[User]:
+        """
+        Recupere tous les utilisateurs actifs du tenant.
+
+        Args:
+            skip: Nombre d'utilisateurs a sauter
+            limit: Nombre maximum d'utilisateurs
+
+        Returns:
+            Liste des utilisateurs actifs du tenant
+        """
+        return (
+            self._tenant_query()
+            .filter(self.model.is_active == True)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    def verify_user(self, user_id: int) -> Optional[User]:
+        """
+        Marque un utilisateur comme verifie (dans ce tenant).
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Returns:
+            L'utilisateur verifie ou None
+        """
+        user = self.get(user_id)  # Utilise _tenant_query
+        if user is None:
+            return None
+
+        user.is_verified = True
+        self.session.flush()
+        return user
+
+    def update_last_login(self, user_id: int) -> Optional[User]:
+        """
+        Met a jour la date de derniere connexion (dans ce tenant).
+
+        Args:
+            user_id: ID de l'utilisateur
+
+        Returns:
+            L'utilisateur mis a jour ou None
+        """
+        user = self.get(user_id)
+        if user is None:
+            return None
+
+        user.last_login_at = datetime.now(timezone.utc)
+        self.session.flush()
+        return user
+
+    def update_password(
+        self,
+        user_id: int,
+        password_hash: str
+    ) -> Optional[User]:
+        """
+        Met a jour le mot de passe d'un utilisateur (dans ce tenant).
+
+        Args:
+            user_id: ID de l'utilisateur
+            password_hash: Nouveau hash du mot de passe
+
+        Returns:
+            L'utilisateur mis a jour ou None
+        """
+        user = self.get(user_id)
+        if user is None:
+            return None
+
+        user.password_hash = password_hash
+        user.password_changed_at = datetime.now(timezone.utc)
+        self.session.flush()
+        return user
+
+    def deactivate(self, user_id: int) -> Optional[User]:
+        """Desactive un utilisateur du tenant."""
+        return self.update(user_id, {"is_active": False})
+
+    def activate(self, user_id: int) -> Optional[User]:
+        """Active un utilisateur du tenant."""
+        return self.update(user_id, {"is_active": True})
+
+    def search_by_name(
+        self,
+        query: str,
+        limit: int = 20
+    ) -> List[User]:
+        """
+        Recherche des utilisateurs par nom DANS le tenant courant.
+
+        Args:
+            query: Terme de recherche
+            limit: Nombre maximum de resultats
+
+        Returns:
+            Liste des utilisateurs correspondants
+        """
+        search_pattern = f"%{query.lower()}%"
+        return (
+            self._tenant_query()
+            .filter(
+                func.lower(
+                    func.coalesce(self.model.first_name, "") + " " +
+                    func.coalesce(self.model.last_name, "")
+                ).like(search_pattern)
+            )
+            .limit(limit)
+            .all()
+        )
+
+    def email_exists(self, email: str) -> bool:
+        """
+        Verifie si un email existe DANS ce tenant.
+
+        Args:
+            email: Email a verifier
+
+        Returns:
+            True si existe dans ce tenant, False sinon
+        """
+        return self.get_by_email(email) is not None
 
 
 class UserRepository(BaseRepository[User]):

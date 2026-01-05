@@ -44,7 +44,7 @@ from app.schemas import (
     success_response,
     error_response,
 )
-from app.services.mfa import MFAService
+from app.services.mfa import MFAService, MFALockoutError
 from app.services.auth import AuthService
 from app.services.user import UserService
 from app.services.session import SessionService
@@ -236,13 +236,20 @@ def login_mfa(
     client_ip = http_request.client.host if http_request.client else None
     user_agent = http_request.headers.get("user-agent")
 
-    result = auth_service.complete_mfa_login(
-        mfa_session_token=request.mfa_session_token,
-        totp_code=request.totp_code,
-        ip_address=client_ip,
-        user_agent=user_agent,
-        expected_tenant_id=tenant_id  # Validation cross-tenant
-    )
+    try:
+        result = auth_service.complete_mfa_login(
+            mfa_session_token=request.mfa_session_token,
+            totp_code=request.totp_code,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            expected_tenant_id=tenant_id  # Validation cross-tenant
+        )
+    except MFALockoutError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=e.message,
+            headers={"Retry-After": str(e.lockout_minutes * 60)}
+        )
 
     if result is None:
         raise HTTPException(
