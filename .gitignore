@@ -54,7 +54,6 @@ Thumbs.db
 .claude/
 
 # Donnees commerciales / exports
-Sumup/
 output/
 metro_data.json
 *.csv
