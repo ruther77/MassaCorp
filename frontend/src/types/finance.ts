@@ -78,6 +78,65 @@ export interface Supplier {
   est_actif: boolean;
 }
 
+// Vendor (API Finance)
+export interface Vendor {
+  id: number;
+  entity_id: number;
+  name: string;
+  code?: string;
+  is_active: boolean;
+  siret?: string;
+  tva_intra?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  address?: string;
+  postal_code?: string;
+  city?: string;
+  country: string;
+  iban?: string;
+  bic?: string;
+  payment_terms_days: number;
+  notes?: string;
+}
+
+export interface VendorCreate {
+  entity_id: number;
+  name: string;
+  code?: string;
+  siret?: string;
+  tva_intra?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  address?: string;
+  postal_code?: string;
+  city?: string;
+  country?: string;
+  iban?: string;
+  bic?: string;
+  payment_terms_days?: number;
+  notes?: string;
+}
+
+export interface VendorUpdate {
+  name?: string;
+  code?: string;
+  siret?: string;
+  tva_intra?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  address?: string;
+  postal_code?: string;
+  city?: string;
+  country?: string;
+  iban?: string;
+  bic?: string;
+  payment_terms_days?: number;
+  notes?: string;
+}
+
 export interface CostCenter {
   cost_center_id: number;
   code: string;

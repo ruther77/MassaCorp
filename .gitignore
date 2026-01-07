@@ -52,3 +52,10 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# Donnees commerciales / exports
+Sumup/
+output/
+metro_data.json
+*.csv
+!docs/*.csv

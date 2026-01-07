@@ -1,17 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import {
-  Plus,
   Search,
-  Download,
-  Upload,
   FileText,
-  Eye,
-  MoreVertical,
-  Trash2,
-  Edit,
-  CheckCircle,
-  ShoppingCart,
   ChevronDown,
   ChevronRight,
   Calendar,
@@ -20,168 +10,127 @@ import {
   Package,
   ChevronLeft,
   Loader2,
+  Building2,
+  Filter,
+  TrendingUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useInvoices, useInvoiceStats, useDeleteInvoice, useUpdateInvoiceStatus } from '../../hooks/useFinance';
 import {
-  Button,
   Input,
   Select,
-  Table,
-  Pagination,
   Badge,
   Card,
   CardContent,
-  Dropdown,
-  DropdownItem,
-  DropdownSeparator,
   EmptyState,
-  DeleteConfirm,
   StatCard,
 } from '../../components/ui';
 import { PageHeader } from '../../components/ui/Breadcrumb';
-import { useFilter, usePagination, useSort, useModal, useToast } from '../../hooks';
 import { formatDate } from '../../lib/utils';
-import type { Invoice, InvoiceFilters, InvoiceStatus, InvoiceType } from '../../types/finance';
 
 import apiClient from '@/api/client';
 
 // ============================================================================
-// TYPES METRO API
+// TYPES API
 // ============================================================================
 
-interface MetroLigneAPI {
+interface UnifiedFactureItem {
   id: number
-  facture_id: number
-  ean: string
-  article_numero: string | null
-  designation: string
-  colisage: number
-  quantite_colis: string
-  quantite_unitaire: string
-  prix_colis: string
-  prix_unitaire: string
-  montant_ht: string
-  volume_unitaire: string | null
-  unite: string
-  taux_tva: string
-  code_tva: string | null
-  montant_tva: string
-  regie: string | null
-  vol_alcool: string | null
-  categorie_id: number | null
-  categorie: string
-}
-
-interface MetroFactureAPI {
-  id: number
+  source: string // METRO, TAIYAT, EUROCIEL
   numero: string
   date_facture: string
-  magasin: string
-  total_ht: string
-  total_tva: string
-  total_ttc: string
-  fichier_source: string | null
-  importee_le: string
+  fournisseur: string
+  total_ht: number | null
+  total_tva: number | null
+  total_ttc: number
   nb_lignes: number
-  lignes: MetroLigneAPI[]
+  type_document: string
 }
 
-interface MetroFactureListItemAPI {
-  id: number
-  numero: string
-  date_facture: string
-  magasin: string
-  total_ht: string
-  total_tva: string
-  total_ttc: string
-  nb_lignes: number
-  importee_le: string
-}
-
-interface MetroFactureListAPI {
-  items: MetroFactureListItemAPI[]
+interface UnifiedFacturesResponse {
+  items: UnifiedFactureItem[]
   total: number
   page: number
   per_page: number
   pages: number
+  summary: {
+    total_factures: number
+    total_ht: number
+    total_tva: number
+    total_ttc: number
+    par_fournisseur: Record<string, {
+      nb_factures: number
+      total_ht: number
+      total_tva: number
+      total_ttc: number
+    }>
+  }
 }
 
-interface MetroSummaryAPI {
-  nb_factures: number
-  nb_produits: number
-  nb_lignes: number
-  total_ht: string
-  total_tva: string
-  total_ttc: string
-  date_premiere_facture: string | null
-  date_derniere_facture: string | null
-}
-
-// Internal types
-interface MetroLigne {
-  ean: string
-  article_numero: string | null
+interface FactureDetailLigne {
+  ean?: string
   designation: string
-  colisage: number
-  quantite: number
-  prix_unitaire: number
-  montant: number
-  taux_tva: number
-  regie: string | null
-  vol_alcool: number | null
+  quantite?: number
+  quantite_colis?: number
+  quantite_unitaire?: number
+  colis?: number
+  prix_unitaire?: number
+  montant_ht?: number
+  montant_ttc?: number
+  taux_tva?: number
+  regie?: string | null
+  vol_alcool?: number | null
+  categorie?: string
+  provenance?: string
+  poids?: number
 }
 
-interface MetroFacture {
+interface FactureDetail {
+  source: string
   id: number
   numero: string
-  date: string
-  magasin: string
+  date_facture: string
+  magasin?: string
+  client_nom?: string
   total_ht: number
   total_tva: number
   total_ttc: number
-  nb_lignes: number
-  lignes: MetroLigne[]
-}
-
-interface MetroSummary {
-  nb_factures: number
-  nb_lignes: number
-  total_ht: number
-  total_tva: number
-  total_ttc: number
+  lignes: FactureDetailLigne[]
 }
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const statusOptions = [
-  { value: '', label: 'Tous les statuts' },
-  { value: 'brouillon', label: 'Brouillon' },
-  { value: 'validee', label: 'Validée' },
-  { value: 'envoyee', label: 'Envoyée' },
-  { value: 'partiellement_payee', label: 'Partiellement payée' },
-  { value: 'payee', label: 'Payée' },
-  { value: 'en_litige', label: 'En litige' },
-  { value: 'annulee', label: 'Annulée' },
+const sourceOptions = [
+  { value: '', label: 'Tous les fournisseurs' },
+  { value: 'METRO', label: 'METRO' },
+  { value: 'TAIYAT', label: 'TAIYAT' },
+  { value: 'EUROCIEL', label: 'EUROCIEL' },
 ];
 
-const typeOptions = [
-  { value: '', label: 'Tous les types' },
-  { value: 'achat', label: 'Achat' },
-  { value: 'vente', label: 'Vente' },
-  { value: 'avoir_achat', label: 'Avoir achat' },
-  { value: 'avoir_vente', label: 'Avoir vente' },
-];
+const SOURCE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  METRO: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' },
+  TAIYAT: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' },
+  EUROCIEL: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' },
+};
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
 function formatCurrency(amount: number | null): string {
-  if (amount === null) return '—'
+  if (amount === null || amount === undefined) return '—'
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount)
+}
+
+function SourceBadge({ source }: { source: string }) {
+  const colors = SOURCE_COLORS[source] || { bg: 'bg-slate-500/20', text: 'text-slate-400', border: 'border-slate-500/30' }
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium', colors.bg, colors.text)}>
+      <Building2 className="w-3 h-3" />
+      {source}
+    </span>
+  )
 }
 
 function CategoryBadge({ regie, vol }: { regie: string | null; vol: number | null }) {
@@ -204,108 +153,86 @@ function CategoryBadge({ regie, vol }: { regie: string | null; vol: number | nul
 }
 
 // ============================================================================
-// METRO INVOICES COMPONENT
+// MAIN COMPONENT
 // ============================================================================
 
-function MetroInvoicesTab() {
-  const [factures, setFactures] = useState<MetroFacture[]>([])
-  const [summary, setSummary] = useState<MetroSummary | null>(null)
+export default function InvoicesPage() {
+  // State
+  const [factures, setFactures] = useState<UnifiedFactureItem[]>([])
+  const [summary, setSummary] = useState<UnifiedFacturesResponse['summary'] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [searchValue, setSearchValue] = useState('')
-  const [expandedFacture, setExpandedFacture] = useState<string | null>(null)
-  const [expandedFactureData, setExpandedFactureData] = useState<MetroFacture | null>(null)
-  const [currentPage, setCurrentPage] = useState(1)
-  const pageSize = 15
 
+  // Filters
+  const [searchValue, setSearchValue] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 20
+
+  // Expanded facture detail
+  const [expandedFacture, setExpandedFacture] = useState<string | null>(null)
+  const [expandedFactureData, setExpandedFactureData] = useState<FactureDetail | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+
+  // Load data
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
       setError(null)
       try {
-        const [facturesRes, summaryRes] = await Promise.all([
-          apiClient.get<MetroFactureListAPI>('/metro/factures', { params: { per_page: 1000 } }),
-          apiClient.get<MetroSummaryAPI>('/metro/summary'),
-        ])
+        const params: Record<string, string | number> = {
+          page: 1,
+          per_page: 10000, // Load all for client-side filtering
+        }
+        if (sourceFilter) {
+          params.source = sourceFilter
+        }
 
-        // Convert API response to internal format
-        const convertedFactures: MetroFacture[] = facturesRes.data.items.map(f => ({
-          id: f.id,
-          numero: f.numero,
-          date: f.date_facture,
-          magasin: f.magasin,
-          total_ht: parseFloat(f.total_ht) || 0,
-          total_tva: parseFloat(f.total_tva) || 0,
-          total_ttc: parseFloat(f.total_ttc) || 0,
-          nb_lignes: f.nb_lignes,
-          lignes: [], // Lines loaded on demand
-        }))
-
-        setFactures(convertedFactures)
-        setSummary({
-          nb_factures: summaryRes.data.nb_factures,
-          nb_lignes: summaryRes.data.nb_lignes,
-          total_ht: parseFloat(summaryRes.data.total_ht) || 0,
-          total_tva: parseFloat(summaryRes.data.total_tva) || 0,
-          total_ttc: parseFloat(summaryRes.data.total_ttc) || 0,
-        })
+        const res = await apiClient.get<UnifiedFacturesResponse>('/finance/factures-fournisseurs', { params })
+        setFactures(res.data.items)
+        setSummary(res.data.summary)
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Erreur lors du chargement des données'
+        const message = err instanceof Error ? err.message : 'Erreur lors du chargement des factures'
         setError(message)
       } finally {
         setLoading(false)
       }
     }
     loadData()
-  }, [])
+  }, [sourceFilter])
 
-  // Load facture detail when expanded
-  const handleExpandFacture = async (factureId: number, numero: string) => {
-    if (expandedFacture === numero) {
+  // Handle expand facture
+  const handleExpandFacture = async (facture: UnifiedFactureItem) => {
+    const key = `${facture.source}-${facture.id}`
+    if (expandedFacture === key) {
       setExpandedFacture(null)
       setExpandedFactureData(null)
       return
     }
 
-    setExpandedFacture(numero)
+    setExpandedFacture(key)
+    setLoadingDetail(true)
     try {
-      const res = await apiClient.get<MetroFactureAPI>(`/metro/factures/${factureId}`)
-      const f = res.data
-      setExpandedFactureData({
-        id: f.id,
-        numero: f.numero,
-        date: f.date_facture,
-        magasin: f.magasin,
-        total_ht: parseFloat(f.total_ht) || 0,
-        total_tva: parseFloat(f.total_tva) || 0,
-        total_ttc: parseFloat(f.total_ttc) || 0,
-        nb_lignes: f.nb_lignes,
-        lignes: f.lignes.map(l => ({
-          ean: l.ean,
-          article_numero: l.article_numero,
-          designation: l.designation,
-          colisage: l.colisage,
-          quantite: parseFloat(l.quantite_unitaire) || 0,
-          prix_unitaire: parseFloat(l.prix_unitaire) || 0,
-          montant: parseFloat(l.montant_ht) || 0,
-          taux_tva: parseFloat(l.taux_tva) || 20,
-          regie: l.regie,
-          vol_alcool: l.vol_alcool ? parseFloat(l.vol_alcool) : null,
-        })),
-      })
+      const res = await apiClient.get<FactureDetail>(
+        `/finance/factures-fournisseurs/${facture.source}/${facture.id}`
+      )
+      setExpandedFactureData(res.data)
     } catch {
-      // Keep expanded but show empty
       setExpandedFactureData(null)
+    } finally {
+      setLoadingDetail(false)
     }
   }
 
+  // Filter and paginate
   const filteredFactures = useMemo(() => {
     if (!searchValue) return factures
 
     const search = searchValue.toLowerCase()
     return factures.filter(f =>
       f.numero.toLowerCase().includes(search) ||
-      f.magasin.toLowerCase().includes(search)
+      f.fournisseur.toLowerCase().includes(search) ||
+      f.source.toLowerCase().includes(search)
     )
   }, [factures, searchValue])
 
@@ -315,15 +242,16 @@ function MetroInvoicesTab() {
     return filteredFactures.slice(start, start + pageSize)
   }, [filteredFactures, currentPage])
 
+  // Reset page on filter change
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchValue])
+  }, [searchValue, sourceFilter])
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
-        <span className="ml-2 text-slate-300">Chargement des factures METRO...</span>
+        <span className="ml-2 text-slate-300">Chargement des factures fournisseurs...</span>
       </div>
     )
   }
@@ -340,17 +268,27 @@ function MetroInvoicesTab() {
 
   return (
     <div className="space-y-6">
-      {/* Stats METRO */}
+      <PageHeader
+        title="Factures Fournisseurs"
+        subtitle="Factures METRO, TAIYAT et EUROCIEL"
+        breadcrumbs={[
+          { label: 'Finance', href: '/finance' },
+          { label: 'Factures' },
+        ]}
+      />
+
+      {/* Stats globales */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
-            title="Factures METRO"
-            value={summary.nb_factures}
-            icon={<ShoppingCart className="w-5 h-5" />}
+            title="Total Factures"
+            value={summary.total_factures}
+            icon={<FileText className="w-5 h-5" />}
           />
           <StatCard
             title="Total HT"
             value={formatCurrency(summary.total_ht)}
+            icon={<TrendingUp className="w-5 h-5" />}
           />
           <StatCard
             title="Total TVA"
@@ -360,130 +298,200 @@ function MetroInvoicesTab() {
             title="Total TTC"
             value={formatCurrency(summary.total_ttc)}
           />
-          <StatCard
-            title="Lignes articles"
-            value={summary.nb_lignes}
-          />
         </div>
       )}
 
-      {/* Search */}
+      {/* Stats par fournisseur */}
+      {summary && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {Object.entries(summary.par_fournisseur).map(([source, stats]) => {
+            const colors = SOURCE_COLORS[source] || { bg: 'bg-slate-500/20', text: 'text-slate-400', border: 'border-slate-500/30' }
+            return (
+              <Card key={source} className={cn('border', colors.border)}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <SourceBadge source={source} />
+                    <span className={cn('text-2xl font-bold', colors.text)}>
+                      {stats.nb_factures}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-dark-400">HT:</span>
+                      <span className="ml-2 text-white">{formatCurrency(stats.total_ht)}</span>
+                    </div>
+                    <div>
+                      <span className="text-dark-400">TTC:</span>
+                      <span className="ml-2 text-white">{formatCurrency(stats.total_ttc)}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Filtres */}
       <Card padding="sm">
         <CardContent>
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex-1 min-w-[250px]">
               <Input
-                placeholder="Rechercher par numéro, magasin, article..."
+                placeholder="Rechercher par numéro, fournisseur..."
                 leftIcon={<Search className="w-4 h-4" />}
                 value={searchValue}
                 onChange={(e) => setSearchValue(e.target.value)}
               />
             </div>
-            <span className="text-sm text-slate-400">
+            <Select
+              options={sourceOptions}
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className="w-48"
+            />
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              <Filter className="w-4 h-4" />
               {filteredFactures.length} factures
-            </span>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Factures List */}
+      {/* Liste des factures */}
       <div className="space-y-2">
-        {paginatedFactures.map((facture) => (
-          <div key={facture.numero} className="bg-dark-800 rounded-xl border border-dark-700 overflow-hidden">
-            <button
-              onClick={() => handleExpandFacture(facture.id, facture.numero)}
-              className="w-full flex items-center justify-between p-4 hover:bg-dark-700/50 transition-colors"
-            >
-              <div className="flex items-center gap-4">
-                {expandedFacture === facture.numero ? (
-                  <ChevronDown className="w-5 h-5 text-dark-400" />
-                ) : (
-                  <ChevronRight className="w-5 h-5 text-dark-400" />
-                )}
-                <div className="text-left">
-                  <p className="font-medium text-white">{facture.numero}</p>
-                  <p className="text-sm text-dark-400">
-                    <Calendar className="w-3 h-3 inline mr-1" />
-                    {formatDate(facture.date)} - {facture.magasin}
-                  </p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="font-bold text-white">{formatCurrency(facture.total_ht)}</p>
-                <p className="text-xs text-dark-400">{facture.nb_lignes} articles</p>
-              </div>
-            </button>
+        {paginatedFactures.length === 0 ? (
+          <EmptyState
+            type="empty"
+            title="Aucune facture"
+            description="Aucune facture ne correspond à vos critères de recherche."
+          />
+        ) : (
+          paginatedFactures.map((facture) => {
+            const key = `${facture.source}-${facture.id}`
+            const isExpanded = expandedFacture === key
 
-            {expandedFacture === facture.numero && (
-              <div className="border-t border-dark-700 p-4 bg-dark-800/50">
-                {expandedFactureData ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-dark-400 border-b border-dark-700">
-                          <th className="text-left pb-2 font-medium">EAN</th>
-                          <th className="text-left pb-2 font-medium">Désignation</th>
-                          <th className="text-center pb-2 font-medium">Cat.</th>
-                          <th className="text-center pb-2 font-medium">Colis</th>
-                          <th className="text-center pb-2 font-medium">Qté</th>
-                          <th className="text-right pb-2 font-medium">P.U.</th>
-                          <th className="text-right pb-2 font-medium">Montant</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {expandedFactureData.lignes.map((ligne, idx) => (
-                          <tr key={idx} className="border-b border-dark-700/50">
-                            <td className="py-2 text-dark-300 font-mono text-xs">{ligne.ean}</td>
-                            <td className="py-2 text-white">{ligne.designation}</td>
-                            <td className="py-2 text-center">
-                              <CategoryBadge regie={ligne.regie} vol={ligne.vol_alcool} />
-                            </td>
-                            <td className="py-2 text-center">
-                              {ligne.colisage > 1 && (
-                                <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-xs">
-                                  x{ligne.colisage}
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2 text-center text-dark-300">{ligne.quantite}</td>
-                            <td className="py-2 text-right text-dark-300">{formatCurrency(ligne.prix_unitaire)}</td>
-                            <td className="py-2 text-right font-medium text-white">{formatCurrency(ligne.montant)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="font-bold">
-                          <td colSpan={6} className="pt-3 text-right text-dark-300">Total HT:</td>
-                          <td className="pt-3 text-right text-white">{formatCurrency(expandedFactureData.total_ht)}</td>
-                        </tr>
-                        <tr>
-                          <td colSpan={6} className="text-right text-dark-400 text-xs">TVA:</td>
-                          <td className="text-right text-dark-400 text-xs">{formatCurrency(expandedFactureData.total_tva)}</td>
-                        </tr>
-                        <tr className="font-bold text-lg">
-                          <td colSpan={6} className="pt-1 text-right text-dark-300">Total TTC:</td>
-                          <td className="pt-1 text-right text-emerald-400">{formatCurrency(expandedFactureData.total_ttc)}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
+            return (
+              <div key={key} className="bg-dark-800 rounded-xl border border-dark-700 overflow-hidden">
+                <button
+                  onClick={() => handleExpandFacture(facture)}
+                  className="w-full flex items-center justify-between p-4 hover:bg-dark-700/50 transition-colors"
+                >
+                  <div className="flex items-center gap-4">
+                    {isExpanded ? (
+                      <ChevronDown className="w-5 h-5 text-dark-400" />
+                    ) : (
+                      <ChevronRight className="w-5 h-5 text-dark-400" />
+                    )}
+                    <SourceBadge source={facture.source} />
+                    <div className="text-left">
+                      <p className="font-medium text-white">{facture.numero}</p>
+                      <p className="text-sm text-dark-400">
+                        <Calendar className="w-3 h-3 inline mr-1" />
+                        {formatDate(facture.date_facture)} - {facture.fournisseur}
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-                    <span className="ml-2 text-slate-400">Chargement des lignes...</span>
+                  <div className="text-right">
+                    <p className="font-bold text-white">{formatCurrency(facture.total_ttc)}</p>
+                    <p className="text-xs text-dark-400">
+                      {facture.nb_lignes} article{facture.nb_lignes > 1 ? 's' : ''}
+                      {facture.type_document === 'AV' && (
+                        <Badge variant="warning" size="sm" className="ml-2">Avoir</Badge>
+                      )}
+                    </p>
+                  </div>
+                </button>
+
+                {/* Détail facture */}
+                {isExpanded && (
+                  <div className="border-t border-dark-700 p-4 bg-dark-800/50">
+                    {loadingDetail ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                        <span className="ml-2 text-slate-400">Chargement des lignes...</span>
+                      </div>
+                    ) : expandedFactureData ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-dark-400 border-b border-dark-700">
+                              {expandedFactureData.source === 'METRO' && (
+                                <th className="text-left pb-2 font-medium">EAN</th>
+                              )}
+                              <th className="text-left pb-2 font-medium">Désignation</th>
+                              {expandedFactureData.source === 'METRO' && (
+                                <th className="text-center pb-2 font-medium">Cat.</th>
+                              )}
+                              {expandedFactureData.source === 'TAIYAT' && (
+                                <th className="text-center pb-2 font-medium">Origine</th>
+                              )}
+                              <th className="text-center pb-2 font-medium">Qté</th>
+                              <th className="text-right pb-2 font-medium">P.U.</th>
+                              <th className="text-right pb-2 font-medium">Montant</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {expandedFactureData.lignes.map((ligne, idx) => (
+                              <tr key={idx} className="border-b border-dark-700/50">
+                                {expandedFactureData.source === 'METRO' && (
+                                  <td className="py-2 text-dark-300 font-mono text-xs">{ligne.ean || '-'}</td>
+                                )}
+                                <td className="py-2 text-white">{ligne.designation}</td>
+                                {expandedFactureData.source === 'METRO' && (
+                                  <td className="py-2 text-center">
+                                    <CategoryBadge regie={ligne.regie || null} vol={ligne.vol_alcool || null} />
+                                  </td>
+                                )}
+                                {expandedFactureData.source === 'TAIYAT' && (
+                                  <td className="py-2 text-center text-dark-300 text-xs">{ligne.provenance || '-'}</td>
+                                )}
+                                <td className="py-2 text-center text-dark-300">
+                                  {ligne.quantite || ligne.quantite_unitaire || ligne.colis || '-'}
+                                </td>
+                                <td className="py-2 text-right text-dark-300">
+                                  {formatCurrency(ligne.prix_unitaire || null)}
+                                </td>
+                                <td className="py-2 text-right font-medium text-white">
+                                  {formatCurrency(ligne.montant_ht || ligne.montant_ttc || null)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="font-bold">
+                              <td colSpan={expandedFactureData.source === 'METRO' ? 5 : 4} className="pt-3 text-right text-dark-300">Total HT:</td>
+                              <td className="pt-3 text-right text-white">{formatCurrency(expandedFactureData.total_ht)}</td>
+                            </tr>
+                            <tr>
+                              <td colSpan={expandedFactureData.source === 'METRO' ? 5 : 4} className="text-right text-dark-400 text-xs">TVA:</td>
+                              <td className="text-right text-dark-400 text-xs">{formatCurrency(expandedFactureData.total_tva)}</td>
+                            </tr>
+                            <tr className="font-bold text-lg">
+                              <td colSpan={expandedFactureData.source === 'METRO' ? 5 : 4} className="pt-1 text-right text-dark-300">Total TTC:</td>
+                              <td className="pt-1 text-right text-emerald-400">{formatCurrency(expandedFactureData.total_ttc)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-slate-400">
+                        Impossible de charger le détail
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        ))}
+            )
+          })
+        )}
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-2 text-sm">
           <div className="text-slate-400">
-            Page {currentPage} sur {totalPages}
+            Page {currentPage} sur {totalPages} ({filteredFactures.length} factures)
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -541,362 +549,6 @@ function MetroInvoicesTab() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
-
-export default function InvoicesPage() {
-  const navigate = useNavigate();
-  const toast = useToast();
-  const [activeTab, setActiveTab] = useState<'standard' | 'metro'>('standard');
-
-  // State
-  const [search, setSearch] = useState('');
-  const filters = useFilter<InvoiceFilters>({
-    initialFilters: {},
-  });
-  const pagination = usePagination({ initialPerPage: 20 });
-  const sort = useSort<string>({ defaultDirection: 'desc' });
-  const deleteModal = useModal<Invoice>();
-
-  // Queries
-  const { data, isLoading, error } = useInvoices(
-    { ...filters.filters, search },
-    pagination.page,
-    pagination.perPage
-  );
-  const { data: stats } = useInvoiceStats(filters.filters);
-
-  // Mutations
-  const deleteMutation = useDeleteInvoice();
-  const updateStatusMutation = useUpdateInvoiceStatus();
-
-  // Handlers
-  const handleDelete = async () => {
-    if (!deleteModal.data) return;
-    try {
-      await deleteMutation.mutateAsync(deleteModal.data.facture_id);
-      toast.success('Facture supprimée');
-      deleteModal.close();
-    } catch {
-      toast.error('Erreur lors de la suppression');
-    }
-  };
-
-  const handleStatusChange = async (invoice: Invoice, newStatus: InvoiceStatus) => {
-    try {
-      await updateStatusMutation.mutateAsync({ id: invoice.facture_id, statut: newStatus });
-      toast.success('Statut mis à jour');
-    } catch {
-      toast.error('Erreur lors de la mise à jour');
-    }
-  };
-
-  // Update pagination total
-  if (data?.total && data.total !== pagination.total) {
-    pagination.setTotal(data.total);
-  }
-
-  const columns = [
-    {
-      key: 'numero',
-      header: 'N° Facture',
-      sortable: true,
-      render: (invoice: Invoice) => (
-        <Link
-          to={`/finance/factures/${invoice.facture_id}`}
-          className="font-medium text-primary-500 hover:text-primary-400"
-        >
-          {invoice.numero}
-        </Link>
-      ),
-    },
-    {
-      key: 'type',
-      header: 'Type',
-      render: (invoice: Invoice) => (
-        <Badge variant={invoice.type === 'vente' ? 'success' : 'info'}>
-          {invoice.type_libelle}
-        </Badge>
-      ),
-    },
-    {
-      key: 'fournisseur',
-      header: 'Tiers',
-      render: (invoice: Invoice) => (
-        <span className="text-dark-200">
-          {invoice.fournisseur_nom || invoice.client_nom || '-'}
-        </span>
-      ),
-    },
-    {
-      key: 'date_facture',
-      header: 'Date',
-      sortable: true,
-      render: (invoice: Invoice) => formatDate(invoice.date_facture),
-    },
-    {
-      key: 'date_echeance',
-      header: 'Échéance',
-      sortable: true,
-      render: (invoice: Invoice) => {
-        const isOverdue = new Date(invoice.date_echeance) < new Date() && invoice.solde_du > 0;
-        return (
-          <span className={isOverdue ? 'text-red-400' : ''}>
-            {formatDate(invoice.date_echeance)}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'montant_ttc',
-      header: 'Montant TTC',
-      sortable: true,
-      align: 'right' as const,
-      render: (invoice: Invoice) => (
-        <span className="font-medium">{formatCurrency(invoice.montant_ttc)}</span>
-      ),
-    },
-    {
-      key: 'solde_du',
-      header: 'Solde dû',
-      sortable: true,
-      align: 'right' as const,
-      render: (invoice: Invoice) => (
-        <span className={invoice.solde_du > 0 ? 'text-red-400' : 'text-green-400'}>
-          {formatCurrency(invoice.solde_du)}
-        </span>
-      ),
-    },
-    {
-      key: 'statut',
-      header: 'Statut',
-      render: (invoice: Invoice) => (
-        <Badge
-          variant={
-            invoice.statut === 'payee' ? 'success' :
-            invoice.statut === 'en_litige' ? 'danger' :
-            invoice.statut === 'annulee' ? 'default' :
-            'warning'
-          }
-          dot
-        >
-          {invoice.statut_libelle}
-        </Badge>
-      ),
-    },
-    {
-      key: 'actions',
-      header: '',
-      width: '50px',
-      render: (invoice: Invoice) => (
-        <Dropdown
-          trigger={
-            <button className="p-1 hover:bg-dark-700 rounded">
-              <MoreVertical className="w-4 h-4 text-dark-400" />
-            </button>
-          }
-          position="bottom-right"
-        >
-          <DropdownItem
-            icon={<Eye className="w-4 h-4" />}
-            onClick={() => navigate(`/finance/factures/${invoice.facture_id}`)}
-          >
-            Voir le détail
-          </DropdownItem>
-          <DropdownItem
-            icon={<Edit className="w-4 h-4" />}
-            onClick={() => navigate(`/finance/factures/${invoice.facture_id}/edit`)}
-            disabled={invoice.statut === 'payee' || invoice.statut === 'annulee'}
-          >
-            Modifier
-          </DropdownItem>
-          {invoice.statut === 'brouillon' && (
-            <DropdownItem
-              icon={<CheckCircle className="w-4 h-4" />}
-              onClick={() => handleStatusChange(invoice, 'validee')}
-            >
-              Valider
-            </DropdownItem>
-          )}
-          <DropdownSeparator />
-          <DropdownItem
-            icon={<Trash2 className="w-4 h-4" />}
-            danger
-            onClick={() => deleteModal.open(invoice)}
-            disabled={invoice.statut === 'payee'}
-          >
-            Supprimer
-          </DropdownItem>
-        </Dropdown>
-      ),
-    },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Factures"
-        subtitle="Gérez vos factures fournisseurs et clients"
-        breadcrumbs={[
-          { label: 'Finance', href: '/finance' },
-          { label: 'Factures' },
-        ]}
-        actions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" leftIcon={<Upload className="w-4 h-4" />}>
-              Importer
-            </Button>
-            <Button variant="outline" leftIcon={<Download className="w-4 h-4" />}>
-              Exporter
-            </Button>
-            <Button leftIcon={<Plus className="w-4 h-4" />} onClick={() => navigate('/finance/factures/new')}>
-              Nouvelle facture
-            </Button>
-          </div>
-        }
-      />
-
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-dark-700">
-        <button
-          onClick={() => setActiveTab('standard')}
-          className={cn(
-            'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
-            activeTab === 'standard'
-              ? 'text-primary-400 border-primary-500'
-              : 'text-dark-400 border-transparent hover:text-white'
-          )}
-        >
-          <FileText className="w-4 h-4 inline mr-2" />
-          Factures
-        </button>
-        <button
-          onClick={() => setActiveTab('metro')}
-          className={cn(
-            'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
-            activeTab === 'metro'
-              ? 'text-primary-400 border-primary-500'
-              : 'text-dark-400 border-transparent hover:text-white'
-          )}
-        >
-          <ShoppingCart className="w-4 h-4 inline mr-2" />
-          METRO
-        </button>
-      </div>
-
-      {/* Standard Invoices Tab */}
-      {activeTab === 'standard' && (
-        <>
-          {/* Stats */}
-          {stats && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard
-                title="Total factures"
-                value={stats.total_factures}
-                icon={<FileText className="w-5 h-5" />}
-              />
-              <StatCard
-                title="Montant total TTC"
-                value={formatCurrency(stats.total_ttc)}
-              />
-              <StatCard
-                title="Montant payé"
-                value={formatCurrency(stats.total_paye)}
-                trend="up"
-              />
-              <StatCard
-                title="Solde dû"
-                value={formatCurrency(stats.total_du)}
-                trend={stats.total_du > 0 ? 'down' : 'neutral'}
-              />
-            </div>
-          )}
-
-          {/* Filtres */}
-          <Card padding="sm">
-            <CardContent>
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex-1 min-w-[200px]">
-                  <Input
-                    placeholder="Rechercher par numéro, fournisseur..."
-                    leftIcon={<Search className="w-4 h-4" />}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </div>
-                <Select
-                  options={typeOptions}
-                  value={filters.filters.type || ''}
-                  onChange={(e) => filters.setFilter('type', e.target.value as InvoiceType || undefined)}
-                  className="w-40"
-                />
-                <Select
-                  options={statusOptions}
-                  value={filters.filters.statut || ''}
-                  onChange={(e) => filters.setFilter('statut', e.target.value as InvoiceStatus || undefined)}
-                  className="w-48"
-                />
-                {filters.hasActiveFilters && (
-                  <Button variant="ghost" size="sm" onClick={filters.clearFilters}>
-                    Réinitialiser
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Table */}
-          {error ? (
-            <EmptyState
-              type="error"
-              title="Erreur de chargement"
-              description="Impossible de charger les factures. Veuillez réessayer."
-              action={{ label: 'Réessayer', onClick: () => window.location.reload() }}
-            />
-          ) : (
-            <>
-              <Table
-                data={data?.items || []}
-                columns={columns}
-                keyExtractor={(invoice) => invoice.facture_id}
-                loading={isLoading}
-                sortKey={sort.sortKey || undefined}
-                sortDirection={sort.sortDirection}
-                onSort={sort.setSort}
-                onRowClick={(invoice) => navigate(`/finance/factures/${invoice.facture_id}`)}
-                emptyMessage="Aucune facture trouvée"
-              />
-
-              {data && data.pages > 1 && (
-                <Pagination
-                  page={pagination.page}
-                  totalPages={data.pages}
-                  total={data.total}
-                  perPage={pagination.perPage}
-                  onPageChange={pagination.setPage}
-                />
-              )}
-            </>
-          )}
-        </>
-      )}
-
-      {/* METRO Invoices Tab */}
-      {activeTab === 'metro' && <MetroInvoicesTab />}
-
-      {/* Delete confirmation */}
-      <DeleteConfirm
-        isOpen={deleteModal.isOpen}
-        onClose={deleteModal.close}
-        onConfirm={handleDelete}
-        itemName={deleteModal.data?.numero}
-        loading={deleteMutation.isPending}
-      />
     </div>
   );
 }

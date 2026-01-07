@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
+import { authApi } from '@/api/auth'
 import {
   Loader2,
   Eye,
@@ -67,8 +68,7 @@ export default function SecurityPage() {
   const onSubmit = async (data: PasswordForm) => {
     setError(null)
     try {
-      // TODO: Implement password change API
-      console.log('Change password:', data)
+      await authApi.changePassword(data.current_password, data.new_password)
       setSuccess(true)
       reset()
       setTimeout(() => setSuccess(false), 3000)

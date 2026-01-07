@@ -89,6 +89,21 @@ from app.schemas.oauth import (
     OAuthProviderInfo,
     OAuthProvidersResponse,
 )
+from app.schemas.epicerie import (
+    SupplyOrderLineBase,
+    SupplyOrderLineCreate,
+    SupplyOrderLineUpdate,
+    SupplyOrderLineRead,
+    SupplyOrderBase,
+    SupplyOrderCreate,
+    SupplyOrderUpdate,
+    SupplyOrderRead,
+    SupplyOrderDetail,
+    SupplyOrderStats,
+    ConfirmOrderRequest,
+    ReceiveOrderRequest,
+    CancelOrderRequest,
+)
 
 __all__ = [
     # Base
@@ -172,4 +187,18 @@ __all__ = [
     "OAuthUnlinkRequest",
     "OAuthProviderInfo",
     "OAuthProvidersResponse",
+    # Epicerie
+    "SupplyOrderLineBase",
+    "SupplyOrderLineCreate",
+    "SupplyOrderLineUpdate",
+    "SupplyOrderLineRead",
+    "SupplyOrderBase",
+    "SupplyOrderCreate",
+    "SupplyOrderUpdate",
+    "SupplyOrderRead",
+    "SupplyOrderDetail",
+    "SupplyOrderStats",
+    "ConfirmOrderRequest",
+    "ReceiveOrderRequest",
+    "CancelOrderRequest",
 ]

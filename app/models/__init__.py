@@ -23,6 +23,59 @@ from app.models.api_key import APIKey, APIKeyUsage, APIKeyScopes
 from app.models.rbac import Permission, Role, RolePermission, UserRole
 from app.models.oauth import OAuthAccount
 from app.models.metro import MetroFacture, MetroLigne, MetroProduitAgregat, get_categorie, METRO_CATEGORIES
+from app.models.taiyat import TaiyatFacture, TaiyatLigne, TaiyatProduitAgregat, categoriser_produit, TAIYAT_TVA_CODES
+from app.models.eurociel import EurocielFacture, EurocielLigne, EurocielProduitAgregat, EurocielCatalogueProduit, categoriser_produit_eurociel, EUROCIEL_TVA_CODES
+
+# Models Finance
+from app.models.finance import (
+    FinanceEntity,
+    FinanceEntityMember,
+    FinanceCategory,
+    FinanceCategoryType,
+    FinanceCostCenter,
+    FinanceAccount,
+    FinanceAccountBalance,
+    FinanceAccountType,
+    FinanceTransaction,
+    FinanceTransactionLine,
+    FinanceTransactionDirection,
+    FinanceTransactionStatus,
+    FinanceVendor,
+    FinanceInvoice,
+    FinanceInvoiceLine,
+    FinancePayment,
+    FinanceInvoiceStatus,
+    FinanceBankStatement,
+    FinanceBankStatementLine,
+    FinanceReconciliation,
+    FinanceReconciliationStatus,
+)
+
+# Models Restaurant
+from app.models.restaurant import (
+    RestaurantIngredient,
+    RestaurantUnit,
+    RestaurantIngredientCategory,
+    RestaurantPlat,
+    RestaurantPlatCategory,
+    RestaurantPlatIngredient,
+    RestaurantEpicerieLink,
+    RestaurantStock,
+    RestaurantStockMovement,
+    RestaurantStockMovementType,
+    RestaurantConsumption,
+    RestaurantConsumptionType,
+    RestaurantCharge,
+    RestaurantChargeType,
+    RestaurantChargeFrequency,
+)
+
+# Models Epicerie
+from app.models.epicerie import (
+    SupplyOrder,
+    SupplyOrderLine,
+    SupplyOrderStatus,
+)
 
 # Alias pour compatibilite avec les tests - UserSession pointe vers Session
 UserSession = Session
@@ -67,4 +120,59 @@ __all__ = [
     "MetroProduitAgregat",
     "get_categorie",
     "METRO_CATEGORIES",
+    # Models TAIYAT
+    "TaiyatFacture",
+    "TaiyatLigne",
+    "TaiyatProduitAgregat",
+    "categoriser_produit",
+    "TAIYAT_TVA_CODES",
+    # Models EUROCIEL
+    "EurocielFacture",
+    "EurocielLigne",
+    "EurocielProduitAgregat",
+    "EurocielCatalogueProduit",
+    "categoriser_produit_eurociel",
+    "EUROCIEL_TVA_CODES",
+    # Models Finance
+    "FinanceEntity",
+    "FinanceEntityMember",
+    "FinanceCategory",
+    "FinanceCategoryType",
+    "FinanceCostCenter",
+    "FinanceAccount",
+    "FinanceAccountBalance",
+    "FinanceAccountType",
+    "FinanceTransaction",
+    "FinanceTransactionLine",
+    "FinanceTransactionDirection",
+    "FinanceTransactionStatus",
+    "FinanceVendor",
+    "FinanceInvoice",
+    "FinanceInvoiceLine",
+    "FinancePayment",
+    "FinanceInvoiceStatus",
+    "FinanceBankStatement",
+    "FinanceBankStatementLine",
+    "FinanceReconciliation",
+    "FinanceReconciliationStatus",
+    # Models Restaurant
+    "RestaurantIngredient",
+    "RestaurantUnit",
+    "RestaurantIngredientCategory",
+    "RestaurantPlat",
+    "RestaurantPlatCategory",
+    "RestaurantPlatIngredient",
+    "RestaurantEpicerieLink",
+    "RestaurantStock",
+    "RestaurantStockMovement",
+    "RestaurantStockMovementType",
+    "RestaurantConsumption",
+    "RestaurantConsumptionType",
+    "RestaurantCharge",
+    "RestaurantChargeType",
+    "RestaurantChargeFrequency",
+    # Models Epicerie
+    "SupplyOrder",
+    "SupplyOrderLine",
+    "SupplyOrderStatus",
 ]

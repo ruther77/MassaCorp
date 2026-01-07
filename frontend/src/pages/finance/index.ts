@@ -5,3 +5,8 @@ export { default as InvoiceFormPage } from './InvoiceFormPage';
 export { default as TreasuryPage } from './TreasuryPage';
 export { default as BudgetPage } from './BudgetPage';
 export { default as DueDatesPage } from './DueDatesPage';
+export { default as TransactionsPage } from './TransactionsPage';
+export { default as AccountsPage } from './AccountsPage';
+export { default as ReconciliationPage } from './ReconciliationPage';
+export { default as RulesPage } from './RulesPage';
+export { default as ImportsPage } from './ImportsPage';

@@ -24,6 +24,14 @@ import {
   Landmark,
   PiggyBank,
   CalendarClock,
+  UtensilsCrossed,
+  ChefHat,
+  Soup,
+  Warehouse,
+  ShoppingCart,
+  CreditCard,
+  Truck,
+  ArrowLeftRight,
 } from 'lucide-react'
 
 interface NavItem {
@@ -36,7 +44,17 @@ interface NavItem {
 
 const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Catalogue', href: '/catalog', icon: Package },
+  {
+    name: 'Epicerie',
+    href: '/epicerie',
+    icon: Package,
+    children: [
+      { name: 'Vue d\'ensemble', href: '/epicerie', icon: Package },
+      { name: 'Catalogue', href: '/epicerie/catalogue', icon: Package },
+      { name: 'Vente POS', href: '/epicerie/pos', icon: ShoppingCart },
+      { name: 'Fournisseurs', href: '/epicerie/fournisseurs', icon: Truck },
+    ]
+  },
   {
     name: 'Finance',
     href: '/finance',
@@ -47,6 +65,20 @@ const navigation: NavItem[] = [
       { name: 'Trésorerie', href: '/finance/tresorerie', icon: Landmark },
       { name: 'Budget', href: '/finance/budget', icon: PiggyBank },
       { name: 'Échéances', href: '/finance/echeances', icon: CalendarClock },
+    ]
+  },
+  {
+    name: 'Restaurant',
+    href: '/restaurant',
+    icon: UtensilsCrossed,
+    children: [
+      { name: 'Vue d\'ensemble', href: '/restaurant', icon: UtensilsCrossed },
+      { name: 'Ingrédients', href: '/restaurant/ingredients', icon: ChefHat },
+      { name: 'Plats', href: '/restaurant/plats', icon: Soup },
+      { name: 'Stock', href: '/restaurant/stock', icon: Warehouse },
+      { name: 'Ventes', href: '/restaurant/ventes', icon: ShoppingCart },
+      { name: 'Charges', href: '/restaurant/charges', icon: CreditCard },
+      { name: 'Rapprochement', href: '/restaurant/rapprochement', icon: ArrowLeftRight },
     ]
   },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
@@ -67,7 +99,7 @@ const profileNavigation: NavItem[] = [
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(['Finance'])
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(['Finance', 'Restaurant', 'Epicerie'])
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
@@ -90,8 +122,8 @@ export default function DashboardLayout() {
   }
 
   const isActiveRoute = (href: string) => {
-    if (href === '/finance') {
-      return location.pathname === '/finance'
+    if (href === '/finance' || href === '/restaurant' || href === '/epicerie') {
+      return location.pathname === href
     }
     return location.pathname.startsWith(href)
   }

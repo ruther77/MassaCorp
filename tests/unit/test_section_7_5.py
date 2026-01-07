@@ -523,35 +523,36 @@ class TestIPAddressValidation:
 
     def test_invalid_ip_hostname(self):
         """
-        Un hostname doit etre rejete.
+        Un hostname doit etre rejete lors de la creation (SessionCreate).
+        SessionBase en mode lecture accepte les valeurs invalides.
         """
-        from app.schemas.session import SessionBase
+        from app.schemas.session import SessionCreate
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError) as exc_info:
-            SessionBase.model_validate({"ip_address": "localhost"})
+            SessionCreate.model_validate({"ip_address": "localhost"})
 
         assert "IP" in str(exc_info.value) or "invalide" in str(exc_info.value)
 
     def test_invalid_ip_format(self):
         """
-        Une adresse IP mal formatee doit etre rejetee.
+        Une adresse IP mal formatee doit etre rejetee lors de la creation.
         """
-        from app.schemas.session import SessionBase
+        from app.schemas.session import SessionCreate
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            SessionBase.model_validate({"ip_address": "256.256.256.256"})
+            SessionCreate.model_validate({"ip_address": "256.256.256.256"})
 
     def test_invalid_ip_with_port(self):
         """
-        Une adresse IP avec port doit etre rejetee.
+        Une adresse IP avec port doit etre rejetee lors de la creation.
         """
-        from app.schemas.session import SessionBase
+        from app.schemas.session import SessionCreate
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            SessionBase.model_validate({"ip_address": "192.168.1.1:8080"})
+            SessionCreate.model_validate({"ip_address": "192.168.1.1:8080"})
 
     def test_null_ip_is_accepted(self):
         """

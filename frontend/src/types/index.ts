@@ -17,6 +17,24 @@ export interface User {
   last_login_at?: string
 }
 
+export interface UserCreate {
+  email: string
+  password: string
+  first_name: string
+  last_name: string
+  is_active?: boolean
+  is_superuser?: boolean
+}
+
+export interface UserUpdate {
+  email?: string
+  first_name?: string
+  last_name?: string
+  is_active?: boolean
+  is_superuser?: boolean
+  password?: string
+}
+
 // Auth types
 export interface LoginRequest {
   email: string

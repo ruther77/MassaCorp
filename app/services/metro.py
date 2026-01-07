@@ -233,6 +233,8 @@ class MetroService:
             numero=numero,
             date_facture=date_facture,
             magasin=facture_data.get("magasin", "METRO"),
+            client_nom=facture_data.get("client_nom"),
+            client_numero=facture_data.get("client_numero"),
             total_ht=total_ht,
             total_tva=total_tva,
             total_ttc=total_ttc,
@@ -262,15 +264,29 @@ class MetroService:
         taux_tva = Decimal(str(ligne_data.get("taux_tva", 20)))
         montant_tva = self.calculer_tva(montant_ht, taux_tva)
 
+        # Colisage et quantités
+        colisage = int(ligne_data.get("colisage", 1) or 1)
+        quantite = Decimal(str(ligne_data.get("quantite", 0)))
+        prix_unitaire = Decimal(str(ligne_data.get("prix_unitaire", 0)))
+
+        # Calculer les valeurs par colis
+        quantite_colis = quantite / colisage if colisage > 0 else quantite
+        prix_colis = prix_unitaire * colisage if colisage > 0 else prix_unitaire
+
         return MetroLigne(
             tenant_id=self.tenant_id,
             facture_id=facture_id,
             ean=ligne_data.get("ean", ""),
             article_numero=ligne_data.get("article_numero"),
             designation=ligne_data.get("designation", ""),
-            quantite=Decimal(str(ligne_data.get("quantite", 0))),
-            prix_unitaire=Decimal(str(ligne_data.get("prix_unitaire", 0))),
+            colisage=colisage,
+            quantite_colis=quantite_colis,
+            quantite_unitaire=quantite,
+            prix_colis=prix_colis,
+            prix_unitaire=prix_unitaire,
             montant_ht=montant_ht,
+            volume_unitaire=Decimal(str(ligne_data.get("volume_unitaire", 0))) if ligne_data.get("volume_unitaire") else None,
+            unite=ligne_data.get("unite", "U") or "U",
             taux_tva=taux_tva,
             code_tva=ligne_data.get("code_tva"),
             montant_tva=montant_tva,
@@ -297,27 +313,43 @@ class MetroService:
         # Calculer les nouveaux agrégats avec SQL
         query = text("""
             INSERT INTO dwh.metro_produit_agregat (
-                tenant_id, ean, designation,
-                quantite_totale, montant_total_ht, montant_total_tva, montant_total,
-                nb_achats, prix_moyen, prix_min, prix_max, taux_tva,
-                regie, vol_alcool, categorie,
+                tenant_id, ean, article_numero, designation,
+                colisage_moyen, unite, volume_unitaire,
+                quantite_colis_totale, quantite_unitaire_totale,
+                montant_total_ht, montant_total_tva, montant_total,
+                nb_achats,
+                prix_unitaire_moyen, prix_unitaire_min, prix_unitaire_max, prix_colis_moyen,
+                taux_tva, categorie_id, famille, categorie, sous_categorie,
+                regie, vol_alcool,
                 premier_achat, dernier_achat, calcule_le
             )
             SELECT
                 l.tenant_id,
                 l.ean,
-                MAX(l.designation) as designation,
-                SUM(l.quantite) as quantite_totale,
+                MAX(l.article_numero) as article_numero,
+                -- Prendre la désignation la plus courte (sans données parasites)
+                (SELECT l2.designation FROM dwh.metro_ligne l2
+                 WHERE l2.ean = l.ean
+                 ORDER BY LENGTH(l2.designation) ASC LIMIT 1) as designation,
+                COALESCE(ROUND(AVG(l.colisage)), 1)::bigint as colisage_moyen,
+                MAX(l.unite) as unite,
+                MAX(l.volume_unitaire) as volume_unitaire,
+                SUM(l.quantite_colis) as quantite_colis_totale,
+                SUM(l.quantite_unitaire) as quantite_unitaire_totale,
                 SUM(l.montant_ht) as montant_total_ht,
                 SUM(l.montant_tva) as montant_total_tva,
                 SUM(l.montant_ht + l.montant_tva) as montant_total,
                 COUNT(*) as nb_achats,
-                AVG(l.prix_unitaire) as prix_moyen,
-                MIN(l.prix_unitaire) as prix_min,
-                MAX(l.prix_unitaire) as prix_max,
+                AVG(l.prix_unitaire) as prix_unitaire_moyen,
+                MIN(l.prix_unitaire) as prix_unitaire_min,
+                MAX(l.prix_unitaire) as prix_unitaire_max,
+                AVG(l.prix_colis) as prix_colis_moyen,
                 MAX(l.taux_tva) as taux_tva,
-                MAX(l.regie) as regie,
-                MAX(l.vol_alcool) as vol_alcool,
+                MAX(l.categorie_id) as categorie_id,
+                CASE
+                    WHEN MAX(l.regie) IN ('S', 'B', 'T', 'M') THEN 'BOISSONS'
+                    ELSE 'EPICERIE'
+                END as famille,
                 CASE
                     WHEN MAX(l.regie) = 'S' THEN 'Spiritueux'
                     WHEN MAX(l.regie) = 'B' THEN 'Bières'
@@ -325,6 +357,9 @@ class MetroService:
                     WHEN MAX(l.regie) = 'M' THEN 'Alcools'
                     ELSE 'Epicerie'
                 END as categorie,
+                NULL as sous_categorie,
+                MAX(l.regie) as regie,
+                MAX(l.vol_alcool) as vol_alcool,
                 MIN(f.date_facture) as premier_achat,
                 MAX(f.date_facture) as dernier_achat,
                 NOW() as calcule_le
@@ -432,6 +467,56 @@ class MetroService:
             DimProduit.id == produit_id,
             DimProduit.actif == True
         ).first()
+
+    def get_produit_agrege(self, produit_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Récupère un produit par ID.
+        Cherche d'abord dans metro_produit_agregat, puis dans dim_produit comme fallback.
+        Utilisé pour les liens épicerie-restaurant.
+
+        Args:
+            produit_id: ID du produit
+
+        Returns:
+            Dict avec les infos produit ou None
+        """
+        # D'abord chercher dans metro_produit_agregat
+        p = self.db.query(MetroProduitAgregat).filter(
+            MetroProduitAgregat.tenant_id == self.tenant_id,
+            MetroProduitAgregat.id == produit_id
+        ).first()
+
+        if p:
+            return {
+                "id": p.id,
+                "ean": p.ean,
+                "designation": p.designation,
+                "designation_clean": p.designation,
+                "prix_unitaire_moyen": float(p.prix_unitaire_moyen) if p.prix_unitaire_moyen else None,
+                "unite": p.unite,
+                "famille": p.famille,
+                "categorie": p.categorie,
+            }
+
+        # Fallback: chercher dans dim_produit (anciens produits)
+        dp = self.db.query(DimProduit).filter(
+            DimProduit.id == produit_id,
+            DimProduit.actif == True
+        ).first()
+
+        if dp:
+            return {
+                "id": dp.id,
+                "ean": dp.ean,
+                "designation": dp.designation_brute,
+                "designation_clean": dp.designation_brute,
+                "prix_unitaire_moyen": float(dp.prix_achat_unitaire) if dp.prix_achat_unitaire else None,
+                "unite": "U",
+                "famille": dp.famille or "DIVERS",
+                "categorie": dp.categorie or "Divers",
+            }
+
+        return None
 
     def get_produit_par_ean(self, ean: str) -> Optional[DimProduit]:
         """
@@ -628,6 +713,44 @@ class MetroService:
             for row in stats
         ]
 
+    def get_stats_par_client(self) -> Dict[str, Any]:
+        """
+        Recupere les statistiques par client/detenteur (NOUTAM, INCONTOURNABLE, etc.)
+
+        Returns:
+            Dict avec la liste des clients et leurs stats
+        """
+        # Total global pour calculer les pourcentages
+        total_global = self.db.query(
+            func.sum(MetroFacture.total_ht)
+        ).filter(
+            MetroFacture.tenant_id == self.tenant_id
+        ).scalar() or Decimal(1)
+
+        # Stats par client
+        stats = self.db.query(
+            MetroFacture.client_nom,
+            func.count(MetroFacture.id),
+            func.sum(MetroFacture.total_ht),
+        ).filter(
+            MetroFacture.tenant_id == self.tenant_id
+        ).group_by(
+            MetroFacture.client_nom
+        ).order_by(
+            desc(func.sum(MetroFacture.total_ht))
+        ).all()
+
+        clients = [
+            {
+                "client_nom": row[0] or "Non identifie",
+                "count": row[1],
+                "total_ht": float(row[2] or 0),
+            }
+            for row in stats
+        ]
+
+        return {"clients": clients}
+
     def get_top_produits(self, limit: int = 10) -> List[DimProduit]:
         """
         Récupère les top produits par montant depuis dim_produit
@@ -717,4 +840,79 @@ class MetroService:
         return [
             {"categorie": row[0], "count": row[1]}
             for row in stats
+        ]
+
+    # =========================================================================
+    # HISTORIQUE DES PRIX
+    # =========================================================================
+
+    def get_price_history(self, produit_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Récupère l'historique des prix d'un produit
+
+        Args:
+            produit_id: ID du produit
+            limit: Nombre max d'entrées
+
+        Returns:
+            Liste des prix historiques
+        """
+        result = self.db.execute(text("""
+            SELECT
+                h.date_prix,
+                h.prix_unitaire,
+                h.prix_colis,
+                h.colisage,
+                h.facture_numero
+            FROM dwh.dim_produit_prix_historique h
+            WHERE h.produit_id = :produit_id
+            ORDER BY h.date_prix DESC
+            LIMIT :limit
+        """), {"produit_id": produit_id, "limit": limit})
+
+        return [
+            {
+                "date": str(row[0]),
+                "prix_unitaire": float(row[1]) if row[1] else 0,
+                "prix_colis": float(row[2]) if row[2] else 0,
+                "colisage": row[3],
+                "facture": row[4],
+            }
+            for row in result
+        ]
+
+    def get_price_history_by_ean(self, ean: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Récupère l'historique des prix par EAN
+
+        Args:
+            ean: Code EAN du produit
+            limit: Nombre max d'entrées
+
+        Returns:
+            Liste des prix historiques
+        """
+        result = self.db.execute(text("""
+            SELECT
+                h.date_prix,
+                h.prix_unitaire,
+                h.prix_colis,
+                h.colisage,
+                h.facture_numero
+            FROM dwh.dim_produit_prix_historique h
+            JOIN dwh.dim_produit p ON h.produit_id = p.id
+            WHERE p.ean = :ean AND p.actif = true
+            ORDER BY h.date_prix DESC
+            LIMIT :limit
+        """), {"ean": ean, "limit": limit})
+
+        return [
+            {
+                "date": str(row[0]),
+                "prix_unitaire": float(row[1]) if row[1] else 0,
+                "prix_colis": float(row[2]) if row[2] else 0,
+                "colisage": row[3],
+                "facture": row[4],
+            }
+            for row in result
         ]

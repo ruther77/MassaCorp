@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { User, Session, AuditLog, PaginatedResponse } from '@/types'
+import type { User, UserCreate, UserUpdate, Session, AuditLog, PaginatedResponse } from '@/types'
 
 export const adminApi = {
   // Users
@@ -19,7 +19,12 @@ export const adminApi = {
     return response.data
   },
 
-  updateUser: async (id: number, data: Partial<User>): Promise<User> => {
+  createUser: async (data: UserCreate): Promise<User> => {
+    const response = await apiClient.post('/users', data)
+    return response.data
+  },
+
+  updateUser: async (id: number, data: UserUpdate): Promise<User> => {
     const response = await apiClient.put(`/users/${id}`, data)
     return response.data
   },

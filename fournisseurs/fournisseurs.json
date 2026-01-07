@@ -1,0 +1,38 @@
+[
+  {
+    "name": "METRO BOBIGNY",
+    "code": "METRO_BOBIGNY",
+    "is_active": true,
+    "country": "FR",
+    "source": "docs/METRO",
+    "source_invoice_count": 12,
+    "notes": "Detected from METRO invoice headers (METRO FRANCE line)."
+  },
+  {
+    "name": "METRO LA CHAPELLE",
+    "code": "METRO_LA_CHAPELLE",
+    "is_active": true,
+    "country": "FR",
+    "source": "docs/METRO",
+    "source_invoice_count": 551,
+    "notes": "Detected from METRO invoice headers (METRO FRANCE line)."
+  },
+  {
+    "name": "METRO NANTERRE",
+    "code": "METRO_NANTERRE",
+    "is_active": true,
+    "country": "FR",
+    "source": "docs/METRO",
+    "source_invoice_count": 2,
+    "notes": "Detected from METRO invoice headers (METRO FRANCE line)."
+  },
+  {
+    "name": "METRO VILLENEUVE",
+    "code": "METRO_VILLENEUVE",
+    "is_active": true,
+    "country": "FR",
+    "source": "docs/METRO",
+    "source_invoice_count": 4,
+    "notes": "Detected from METRO invoice headers (METRO FRANCE line)."
+  }
+]

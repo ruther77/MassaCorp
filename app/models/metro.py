@@ -38,6 +38,10 @@ class MetroFacture(Base, TimestampMixin, TenantMixin):
     date_facture: Mapped[date] = mapped_column(Date, nullable=False, comment="Date de la facture")
     magasin: Mapped[str] = mapped_column(String(100), nullable=False, comment="Magasin METRO")
 
+    # Client / Détenteur
+    client_nom: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="Nom client (NOUTAM, INCONTOURNABLE)")
+    client_numero: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, comment="Numéro client METRO")
+
     # Totaux
     total_ht: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0, comment="Total HT")
     total_tva: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0, comment="Total TVA")

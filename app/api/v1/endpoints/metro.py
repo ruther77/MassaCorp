@@ -232,6 +232,51 @@ def get_product_by_ean(
 
 
 # ============================================
+# Historique des prix
+# ============================================
+
+@router.get(
+    "/products/{produit_id}/price-history",
+    summary="Historique des prix d'un produit",
+)
+def get_price_history(
+    produit_id: int,
+    limit: int = Query(100, ge=1, le=500, description="Nombre max d'entrées"),
+    service: MetroService = Depends(get_metro_service),
+):
+    """
+    Retourne l'historique des prix d'un produit.
+    Utile pour visualiser l'évolution des prix dans le temps.
+    """
+    history = service.get_price_history(produit_id, limit)
+    return {
+        "produit_id": produit_id,
+        "count": len(history),
+        "history": history,
+    }
+
+
+@router.get(
+    "/products/ean/{ean}/price-history",
+    summary="Historique des prix par EAN",
+)
+def get_price_history_by_ean(
+    ean: str,
+    limit: int = Query(100, ge=1, le=500, description="Nombre max d'entrées"),
+    service: MetroService = Depends(get_metro_service),
+):
+    """
+    Retourne l'historique des prix d'un produit par son EAN.
+    """
+    history = service.get_price_history_by_ean(ean, limit)
+    return {
+        "ean": ean,
+        "count": len(history),
+        "history": history,
+    }
+
+
+# ============================================
 # Endpoints Factures
 # ============================================
 
@@ -399,6 +444,17 @@ def get_categories(
 ):
     """Retourne la liste des catégories avec le nombre de produits."""
     return service.get_categories()
+
+
+@router.get(
+    "/clients",
+    summary="Statistiques par client/detenteur",
+)
+def get_clients_stats(
+    service: MetroService = Depends(get_metro_service),
+):
+    """Retourne les statistiques par client (NOUTAM, INCONTOURNABLE, etc.)."""
+    return service.get_stats_par_client()
 
 
 # ============================================

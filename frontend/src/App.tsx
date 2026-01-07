@@ -32,6 +32,13 @@ import AnalyticsDashboard from '@/pages/analytics/AnalyticsDashboard'
 // Catalog pages
 import CatalogPage from '@/pages/catalog/CatalogPage'
 
+// Epicerie pages
+import {
+  EpicerieDashboard,
+  VentePOSPage,
+  FournisseursPage,
+} from '@/pages/epicerie'
+
 // Finance pages
 import {
   FinanceDashboard,
@@ -41,7 +48,23 @@ import {
   TreasuryPage,
   BudgetPage,
   DueDatesPage,
+  TransactionsPage,
+  AccountsPage,
+  ReconciliationPage,
+  RulesPage,
+  ImportsPage,
 } from '@/pages/finance'
+
+// Restaurant pages
+import {
+  RestaurantDashboard,
+  IngredientsPage,
+  PlatsPage,
+  StockPage,
+  ConsumptionsPage,
+  ChargesPage,
+  RapprochementPage,
+} from '@/pages/restaurant'
 
 
 // Protected Route wrapper
@@ -112,8 +135,14 @@ export default function App() {
         {/* Analytics */}
         <Route path="/analytics" element={<AnalyticsDashboard />} />
 
-        {/* Catalog */}
+        {/* Catalog - old route redirect */}
         <Route path="/catalog" element={<CatalogPage />} />
+
+        {/* Epicerie */}
+        <Route path="/epicerie" element={<EpicerieDashboard />} />
+        <Route path="/epicerie/catalogue" element={<CatalogPage />} />
+        <Route path="/epicerie/pos" element={<VentePOSPage />} />
+        <Route path="/epicerie/fournisseurs" element={<FournisseursPage />} />
 
         {/* Finance */}
         <Route path="/finance" element={<FinanceDashboard />} />
@@ -124,6 +153,20 @@ export default function App() {
         <Route path="/finance/tresorerie" element={<TreasuryPage />} />
         <Route path="/finance/budget" element={<BudgetPage />} />
         <Route path="/finance/echeances" element={<DueDatesPage />} />
+        <Route path="/finance/transactions" element={<TransactionsPage />} />
+        <Route path="/finance/comptes" element={<AccountsPage />} />
+        <Route path="/finance/rapprochement" element={<ReconciliationPage />} />
+        <Route path="/finance/regles" element={<RulesPage />} />
+        <Route path="/finance/imports" element={<ImportsPage />} />
+
+        {/* Restaurant */}
+        <Route path="/restaurant" element={<RestaurantDashboard />} />
+        <Route path="/restaurant/ingredients" element={<IngredientsPage />} />
+        <Route path="/restaurant/plats" element={<PlatsPage />} />
+        <Route path="/restaurant/stock" element={<StockPage />} />
+        <Route path="/restaurant/ventes" element={<ConsumptionsPage />} />
+        <Route path="/restaurant/charges" element={<ChargesPage />} />
+        <Route path="/restaurant/rapprochement" element={<RapprochementPage />} />
       </Route>
 
       {/* Redirects */}

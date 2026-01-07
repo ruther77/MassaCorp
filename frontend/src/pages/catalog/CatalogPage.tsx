@@ -1,8 +1,9 @@
 /**
- * CatalogPage - Catalogue Produits METRO (v3)
+ * CatalogPage - Catalogue Produits METRO & TAIYAT (v4)
  *
  * Interface améliorée avec:
  * - Données depuis l'API backend PostgreSQL
+ * - Sélection source: METRO ou TAIYAT
  * - Tri cliquable sur colonnes
  * - Filtres visuels en chips
  * - Suggestions rapides
@@ -11,6 +12,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import apiClient from '@/api/client'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   Package,
   Search,
@@ -33,7 +35,14 @@ import {
   Eye,
   HelpCircle,
   Loader2,
+  History,
+  Truck,
+  Leaf,
+  Fish,
+  Store,
 } from 'lucide-react'
+
+type DataSource = 'all' | 'metro' | 'taiyat' | 'eurociel' | 'other'
 
 // ============================================================================
 // TYPES - API Response
@@ -79,6 +88,20 @@ interface MetroSummaryAPI {
   date_derniere_facture: string | null
 }
 
+interface PriceHistoryEntry {
+  date: string
+  prix_unitaire: number
+  prix_colis: number
+  colisage: number
+  facture: string
+}
+
+interface PriceHistoryResponse {
+  ean: string
+  count: number
+  history: PriceHistoryEntry[]
+}
+
 interface MetroProduitListAPI {
   items: MetroProduitAPI[]
   total: number
@@ -87,23 +110,157 @@ interface MetroProduitListAPI {
   pages: number
 }
 
-// Internal type (converted from API)
-interface MetroProduit {
+// TAIYAT API Types
+interface TaiyatProduitAPI {
   id: number
-  ean: string
+  ean: string | null
+  designation: string
+  designation_clean: string
+  provenance: string | null
+  quantite_colis: number
+  quantite_pieces: number | null
+  nb_achats: number
+  montant_total_ht: number
+  montant_total_tva: number
+  montant_total: number
+  prix_moyen_ht: number
+  prix_min_ht: number
+  prix_max_ht: number
+  taux_tva: number
+  famille: string
+  categorie: string
+  sous_categorie: string | null
+  dim_produit_id: number | null
+  premier_achat: string | null
+  dernier_achat: string | null
+}
+
+interface TaiyatProduitListAPI {
+  items: TaiyatProduitAPI[]
+  total: number
+  page: number
+  per_page: number
+  pages: number
+}
+
+interface TaiyatSummaryAPI {
+  fournisseur: string
+  siret: string
+  nb_factures: number
+  nb_lignes: number
+  nb_produits: number
+  total_ttc: number
+  premiere_facture: string | null
+  derniere_facture: string | null
+}
+
+// EUROCIEL API Types
+interface EurocielProduitAPI {
+  id: number
+  ean: string | null
+  designation: string
+  designation_clean: string
+  quantite_totale: number
+  poids_total_kg: number
+  nb_achats: number
+  montant_total_ht: number
+  montant_total_tva: number
+  montant_total: number
+  prix_moyen: number
+  prix_min: number
+  prix_max: number
+  taux_tva: number
+  famille: string
+  categorie: string
+  sous_categorie: string | null
+  dim_produit_id: number | null
+  premier_achat: string | null
+  dernier_achat: string | null
+}
+
+interface EurocielProduitListAPI {
+  items: EurocielProduitAPI[]
+  total: number
+  page: number
+  per_page: number
+  pages: number
+}
+
+interface EurocielSummaryAPI {
+  fournisseur: string
+  siret: string
+  tva_intra: string
+  nb_factures: number
+  nb_factures_fa: number
+  nb_avoirs: number
+  nb_lignes: number
+  nb_produits: number
+  total_ht: number
+  total_ttc: number
+  poids_total_kg: number
+  premiere_facture: string | null
+  derniere_facture: string | null
+}
+
+// OTHER API Types
+interface OtherProduitAPI {
+  id: number
+  designation: string
+  designation_clean: string | null
+  famille: string | null
+  categorie: string | null
+  sous_categorie: string | null
+  colisage: number
+  unite: string | null
+  contenance: string | null
+  prix_unitaire: number
+  prix_colis: number | null
+  fournisseur_nom: string | null
+  fournisseur_type: string | null
+  notes: string | null
+  actif: boolean
+}
+
+interface OtherProduitListAPI {
+  items: OtherProduitAPI[]
+  total: number
+  page: number
+  per_page: number
+  pages: number
+}
+
+interface OtherSummaryAPI {
+  nb_produits: number
+  nb_produits_actifs: number
+  nb_fournisseurs: number
+  total_valeur_catalogue: number
+}
+
+// Unified product type for display
+interface UnifiedProduct {
+  id: number
+  source: DataSource
+  identifier: string // EAN for METRO, designation_clean for TAIYAT
+  ean: string | null // Code EAN (can be null for TAIYAT)
   designation: string
   colisage: number
   prix_unitaire: number
-  prix_colis: number
   quantite_totale: number
   montant_total: number
   montant_tva: number
   taux_tva: number
   nb_achats: number
-  regie: string | null
-  vol_alcool: number | null
   categorie: string
   famille: string
+  // METRO specific
+  regie?: string | null
+  vol_alcool?: number | null
+  prix_colis?: number
+  // TAIYAT specific
+  provenance?: string | null
+  dim_produit_id?: number | null
+  // OTHER specific
+  fournisseur_nom?: string | null
 }
 
 type SortKey = 'designation' | 'prix_unitaire' | 'quantite_totale' | 'montant_total' | 'taux_tva' | 'nb_achats'
@@ -113,9 +270,11 @@ type SortDirection = 'asc' | 'desc'
 // HELPERS
 // ============================================================================
 
-function convertApiProduct(p: MetroProduitAPI): MetroProduit {
+function convertMetroProduct(p: MetroProduitAPI): UnifiedProduct {
   return {
     id: p.id,
+    source: 'metro',
+    identifier: p.ean,
     ean: p.ean,
     designation: p.designation,
     colisage: p.colisage_moyen,
@@ -130,6 +289,68 @@ function convertApiProduct(p: MetroProduitAPI): MetroProduit {
     vol_alcool: p.vol_alcool ? parseFloat(p.vol_alcool) : null,
     categorie: p.categorie,
     famille: p.famille,
+  }
+}
+
+function convertTaiyatProduct(p: TaiyatProduitAPI): UnifiedProduct {
+  return {
+    id: p.id,
+    source: 'taiyat',
+    identifier: p.ean || p.designation_clean, // Use EAN if available, otherwise designation
+    ean: p.ean,
+    designation: p.designation,
+    colisage: 1, // TAIYAT n'a pas de colisage
+    prix_unitaire: p.prix_moyen_ht,
+    quantite_totale: p.quantite_colis,
+    montant_total: p.montant_total_ht,
+    montant_tva: p.montant_total_tva,
+    taux_tva: p.taux_tva,
+    nb_achats: p.nb_achats,
+    categorie: p.categorie,
+    famille: p.famille,
+    provenance: p.provenance,
+    dim_produit_id: p.dim_produit_id,
+  }
+}
+
+function convertEurocielProduct(p: EurocielProduitAPI): UnifiedProduct {
+  return {
+    id: p.id,
+    source: 'eurociel',
+    identifier: p.ean || p.designation_clean,
+    ean: p.ean,
+    designation: p.designation,
+    colisage: 1, // EUROCIEL vend au kg, pas de colisage
+    prix_unitaire: p.prix_moyen,
+    quantite_totale: p.poids_total_kg, // kg pour EUROCIEL
+    montant_total: p.montant_total_ht,
+    montant_tva: p.montant_total_tva,
+    taux_tva: p.taux_tva,
+    nb_achats: p.nb_achats,
+    categorie: p.categorie,
+    famille: p.famille,
+    dim_produit_id: p.dim_produit_id,
+  }
+}
+
+function convertOtherProduct(p: OtherProduitAPI): UnifiedProduct {
+  return {
+    id: p.id,
+    source: 'other',
+    identifier: p.designation_clean || p.designation,
+    ean: null, // OTHER products don't have EAN
+    designation: p.designation,
+    colisage: p.colisage || 1,
+    prix_unitaire: p.prix_unitaire / 100, // Convert centimes to euros
+    prix_colis: p.prix_colis ? p.prix_colis / 100 : undefined,
+    quantite_totale: 0, // No purchase history
+    montant_total: 0, // No purchase history
+    montant_tva: 0,
+    taux_tva: 20, // Default TVA
+    nb_achats: 0, // No purchase history
+    categorie: p.categorie || 'Autre',
+    famille: p.famille || 'Autre',
+    fournisseur_nom: p.fournisseur_nom,
   }
 }
 
@@ -301,7 +522,7 @@ function QuickFilter({
   )
 }
 
-function ProductCard({ product, onClick, rank }: { product: MetroProduit; onClick: () => void; rank?: number }) {
+function ProductCard({ product, onClick, rank }: { product: UnifiedProduct; onClick: () => void; rank?: number }) {
   return (
     <div
       onClick={onClick}
@@ -323,7 +544,9 @@ function ProductCard({ product, onClick, rank }: { product: MetroProduit; onClic
             <h3 className="font-semibold text-white truncate">{product.designation}</h3>
           </div>
           <div className="flex items-center gap-2 mt-0.5">
-            <p className="text-xs text-slate-500 font-mono">{product.ean}</p>
+            <p className="text-xs text-slate-500 font-mono">
+              {product.source === 'metro' ? product.identifier : product.source === 'taiyat' ? (product.provenance || '—') : (product.ean || 'EAN manquant')}
+            </p>
             {product.colisage > 1 && (
               <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
                 x{product.colisage}
@@ -331,7 +554,17 @@ function ProductCard({ product, onClick, rank }: { product: MetroProduit; onClic
             )}
           </div>
         </div>
-        <CategoryBadge regie={product.regie} vol={product.vol_alcool} />
+        {product.source === 'metro' ? (
+          <CategoryBadge regie={product.regie || null} vol={product.vol_alcool || null} />
+        ) : product.source === 'taiyat' ? (
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-300">
+            <Leaf className="w-3 h-3" />
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-cyan-500/20 text-cyan-300">
+            <Fish className="w-3 h-3" />
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-4 gap-3 pt-2 border-t border-white/10">
@@ -344,7 +577,7 @@ function ProductCard({ product, onClick, rank }: { product: MetroProduit; onClic
           <p className="text-sm font-mono font-semibold text-emerald-400">{formatNumber(product.quantite_totale)}</p>
         </div>
         <div>
-          <p className="text-xs text-slate-500">Total HT</p>
+          <p className="text-xs text-slate-500">Total {product.source === 'taiyat' ? 'TTC' : 'HT'}</p>
           <p className="text-sm font-mono font-semibold text-blue-400">{formatCurrency(product.montant_total)}</p>
         </div>
         <div>
@@ -403,7 +636,7 @@ function WelcomeGuide({ onDismiss }: { onDismiss: () => void }) {
   )
 }
 
-function TopInsights({ products }: { products: MetroProduit[] }) {
+function TopInsights({ products }: { products: UnifiedProduct[] }) {
   const top3 = products.slice(0, 3)
   const totalValue = products.reduce((sum, p) => sum + p.montant_total, 0)
   const top3Value = top3.reduce((sum, p) => sum + p.montant_total, 0)
@@ -418,7 +651,7 @@ function TopInsights({ products }: { products: MetroProduit[] }) {
       </div>
       <div className="space-y-2">
         {top3.map((p, idx) => (
-          <div key={p.ean} className="flex items-center gap-3">
+          <div key={p.identifier} className="flex items-center gap-3">
             <span className={cn(
               'w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold shrink-0',
               idx === 0 && 'bg-yellow-500/30 text-yellow-400',
@@ -442,8 +675,9 @@ function TopInsights({ products }: { products: MetroProduit[] }) {
 
 export default function CatalogPage() {
   // State
-  const [products, setProducts] = useState<MetroProduit[]>([])
-  const [summary, setSummary] = useState<MetroSummaryAPI | null>(null)
+  const [dataSource, setDataSource] = useState<DataSource>('all')
+  const [products, setProducts] = useState<UnifiedProduct[]>([])
+  const [summary, setSummary] = useState<{ nb_produits: number; nb_factures: number; total_ht: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchValue, setSearchValue] = useState('')
@@ -453,37 +687,140 @@ export default function CatalogPage() {
     direction: 'desc'
   })
   const [currentPage, setCurrentPage] = useState(1)
-  const [selectedProduct, setSelectedProduct] = useState<MetroProduit | null>(null)
+  const [selectedProduct, setSelectedProduct] = useState<UnifiedProduct | null>(null)
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
   const [showGuide, setShowGuide] = useState(() => {
     return localStorage.getItem('catalog-guide-dismissed') !== 'true'
   })
   const [quickFilter, setQuickFilter] = useState<string | null>(null)
   const pageSize = 20
 
-  // Load data from API
+  // Load data from API based on source
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      // Fetch all products (pagination will be client-side for sorting/filtering flexibility)
-      const [productsRes, summaryRes] = await Promise.all([
-        apiClient.get<MetroProduitListAPI>('/metro/products', { params: { per_page: 1000 } }),
-        apiClient.get<MetroSummaryAPI>('/metro/summary'),
-      ])
-
-      setProducts(productsRes.data.items.map(convertApiProduct))
-      setSummary(summaryRes.data)
+      if (dataSource === 'all') {
+        // Load from all sources in parallel
+        const [metroProducts, taiyatProducts, eurocielProducts, otherProducts, metroSummary, taiyatSummary, eurocielSummary, otherSummary] = await Promise.all([
+          apiClient.get<MetroProduitListAPI>('/metro/products', { params: { per_page: 1000 } }),
+          apiClient.get<TaiyatProduitListAPI>('/taiyat/products', { params: { per_page: 1000 } }),
+          apiClient.get<EurocielProduitListAPI>('/eurociel/products', { params: { per_page: 1000 } }),
+          apiClient.get<OtherProduitListAPI>('/other/products', { params: { per_page: 1000 } }),
+          apiClient.get<MetroSummaryAPI>('/metro/summary'),
+          apiClient.get<TaiyatSummaryAPI>('/taiyat/summary'),
+          apiClient.get<EurocielSummaryAPI>('/eurociel/summary'),
+          apiClient.get<OtherSummaryAPI>('/other/summary'),
+        ])
+        const allProducts = [
+          ...metroProducts.data.items.map(convertMetroProduct),
+          ...taiyatProducts.data.items.map(convertTaiyatProduct),
+          ...eurocielProducts.data.items.map(convertEurocielProduct),
+          ...otherProducts.data.items.map(convertOtherProduct),
+        ]
+        setProducts(allProducts)
+        setSummary({
+          nb_produits: metroSummary.data.nb_produits + taiyatSummary.data.nb_produits + eurocielSummary.data.nb_produits + otherSummary.data.nb_produits,
+          nb_factures: metroSummary.data.nb_factures + taiyatSummary.data.nb_factures + eurocielSummary.data.nb_factures,
+          total_ht: (parseFloat(metroSummary.data.total_ht) || 0) + (eurocielSummary.data.total_ht || 0) + (taiyatSummary.data.total_ttc || 0),
+        })
+      } else if (dataSource === 'metro') {
+        const [productsRes, summaryRes] = await Promise.all([
+          apiClient.get<MetroProduitListAPI>('/metro/products', { params: { per_page: 1000 } }),
+          apiClient.get<MetroSummaryAPI>('/metro/summary'),
+        ])
+        setProducts(productsRes.data.items.map(convertMetroProduct))
+        setSummary({
+          nb_produits: summaryRes.data.nb_produits,
+          nb_factures: summaryRes.data.nb_factures,
+          total_ht: parseFloat(summaryRes.data.total_ht) || 0,
+        })
+      } else if (dataSource === 'taiyat') {
+        const [productsRes, summaryRes] = await Promise.all([
+          apiClient.get<TaiyatProduitListAPI>('/taiyat/products', { params: { per_page: 1000 } }),
+          apiClient.get<TaiyatSummaryAPI>('/taiyat/summary'),
+        ])
+        setProducts(productsRes.data.items.map(convertTaiyatProduct))
+        setSummary({
+          nb_produits: summaryRes.data.nb_produits,
+          nb_factures: summaryRes.data.nb_factures,
+          total_ht: summaryRes.data.total_ttc, // TAIYAT uses TTC
+        })
+      } else if (dataSource === 'eurociel') {
+        // EUROCIEL
+        const [productsRes, summaryRes] = await Promise.all([
+          apiClient.get<EurocielProduitListAPI>('/eurociel/products', { params: { per_page: 1000 } }),
+          apiClient.get<EurocielSummaryAPI>('/eurociel/summary'),
+        ])
+        setProducts(productsRes.data.items.map(convertEurocielProduct))
+        setSummary({
+          nb_produits: summaryRes.data.nb_produits,
+          nb_factures: summaryRes.data.nb_factures,
+          total_ht: summaryRes.data.total_ht,
+        })
+      } else {
+        // OTHER
+        const [productsRes, summaryRes] = await Promise.all([
+          apiClient.get<OtherProduitListAPI>('/other/products', { params: { per_page: 1000 } }),
+          apiClient.get<OtherSummaryAPI>('/other/summary'),
+        ])
+        setProducts(productsRes.data.items.map(convertOtherProduct))
+        setSummary({
+          nb_produits: summaryRes.data.nb_produits,
+          nb_factures: 0, // OTHER doesn't have factures
+          total_ht: summaryRes.data.total_valeur_catalogue / 100, // Convert centimes
+        })
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Erreur lors du chargement des données'
       setError(message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [dataSource])
 
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // Load price history when product selected (only for METRO)
+  useEffect(() => {
+    if (!selectedProduct) {
+      setPriceHistory([])
+      return
+    }
+    // Price history only available for METRO products
+    if (selectedProduct.source !== 'metro') {
+      setPriceHistory([])
+      return
+    }
+    const fetchHistory = async () => {
+      setLoadingHistory(true)
+      try {
+        const res = await apiClient.get<PriceHistoryResponse>(
+          `/metro/products/ean/${selectedProduct.identifier}/price-history`,
+          { params: { limit: 50 } }
+        )
+        setPriceHistory(res.data.history)
+      } catch {
+        setPriceHistory([])
+      } finally {
+        setLoadingHistory(false)
+      }
+    }
+    fetchHistory()
+  }, [selectedProduct])
+
+  // Handle source change
+  const handleSourceChange = useCallback((newSource: DataSource) => {
+    setDataSource(newSource)
+    setSearchValue('')
+    setCategoryFilter(null)
+    setQuickFilter(null)
+    setCurrentPage(1)
+    setSelectedProduct(null)
+  }, [])
 
   // Category counts
   const categoryCounts = useMemo(() => {
@@ -503,7 +840,8 @@ export default function CatalogPage() {
       const search = searchValue.toLowerCase()
       result = result.filter(p =>
         p.designation.toLowerCase().includes(search) ||
-        p.ean.includes(search)
+        p.identifier.toLowerCase().includes(search) ||
+        (p.provenance && p.provenance.toLowerCase().includes(search))
       )
     }
 
@@ -521,6 +859,14 @@ export default function CatalogPage() {
       result = result.filter(p => p.regie !== null)
     } else if (quickFilter === 'expensive') {
       result = result.filter(p => p.prix_unitaire >= 20)
+    } else if (quickFilter === 'source-metro') {
+      result = result.filter(p => p.source === 'metro')
+    } else if (quickFilter === 'source-taiyat') {
+      result = result.filter(p => p.source === 'taiyat')
+    } else if (quickFilter === 'source-eurociel') {
+      result = result.filter(p => p.source === 'eurociel')
+    } else if (quickFilter === 'source-other') {
+      result = result.filter(p => p.source === 'other')
     }
 
     return result
@@ -626,10 +972,10 @@ export default function CatalogPage() {
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
             <Package className="w-7 h-7 text-blue-500" />
-            Catalogue Produits METRO
+            Catalogue Produits
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            {formatNumber(summary?.nb_produits || products.length)} produits · {summary?.nb_factures || 0} factures · {formatCurrency(parseFloat(summary?.total_ht || '0'))} HT
+            {formatNumber(summary?.nb_produits || products.length)} produits · {summary?.nb_factures || 0} factures · {formatCurrency(summary?.total_ht || 0)} {dataSource === 'taiyat' ? 'TTC' : 'HT'}
           </p>
         </div>
         <button
@@ -646,20 +992,80 @@ export default function CatalogPage() {
         </button>
       </div>
 
+      {/* Source Tabs */}
+      <div className="flex gap-2 border-b border-white/10 pb-1 overflow-x-auto">
+        <button
+          onClick={() => handleSourceChange('all')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-all whitespace-nowrap',
+            dataSource === 'all'
+              ? 'bg-purple-500/20 text-purple-400 border-b-2 border-purple-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <Package className="w-4 h-4" />
+          Tous les produits
+        </button>
+        <button
+          onClick={() => handleSourceChange('metro')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-all whitespace-nowrap',
+            dataSource === 'metro'
+              ? 'bg-blue-500/20 text-blue-400 border-b-2 border-blue-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <Truck className="w-4 h-4" />
+          METRO
+        </button>
+        <button
+          onClick={() => handleSourceChange('taiyat')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-all whitespace-nowrap',
+            dataSource === 'taiyat'
+              ? 'bg-green-500/20 text-green-400 border-b-2 border-green-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <Leaf className="w-4 h-4" />
+          TAI YAT
+        </button>
+        <button
+          onClick={() => handleSourceChange('eurociel')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-all whitespace-nowrap',
+            dataSource === 'eurociel'
+              ? 'bg-cyan-500/20 text-cyan-400 border-b-2 border-cyan-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <Fish className="w-4 h-4" />
+          EUROCIEL
+        </button>
+        <button
+          onClick={() => handleSourceChange('other')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-t-lg font-medium transition-all whitespace-nowrap',
+            dataSource === 'other'
+              ? 'bg-orange-500/20 text-orange-400 border-b-2 border-orange-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <Store className="w-4 h-4" />
+          AUTRES
+        </button>
+      </div>
+
       {/* KPIs + Insights */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-3 gap-4">
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
             <p className="text-2xl font-bold text-white">{formatNumber(summary?.nb_produits || products.length)}</p>
             <p className="text-xs text-slate-400">Produits uniques</p>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
-            <p className="text-2xl font-bold text-emerald-400">{formatCurrency(parseFloat(summary?.total_ht || '0'))}</p>
-            <p className="text-xs text-slate-400">Total HT</p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
-            <p className="text-2xl font-bold text-rose-400">{formatCurrency(parseFloat(summary?.total_tva || '0'))}</p>
-            <p className="text-xs text-slate-400">Total TVA</p>
+            <p className="text-2xl font-bold text-emerald-400">{formatCurrency(summary?.total_ht || 0)}</p>
+            <p className="text-xs text-slate-400">Total {dataSource === 'taiyat' ? 'TTC' : 'HT'}</p>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-center">
             <p className="text-2xl font-bold text-blue-400">{summary?.nb_factures || 0}</p>
@@ -721,6 +1127,29 @@ export default function CatalogPage() {
               isActive={quickFilter === 'expensive'}
               onClick={() => setQuickFilter(quickFilter === 'expensive' ? null : 'expensive')}
             />
+            {dataSource === 'all' && (
+              <>
+                <span className="text-slate-600">|</span>
+                <QuickFilter
+                  label="METRO"
+                  icon={Truck}
+                  isActive={quickFilter === 'source-metro'}
+                  onClick={() => setQuickFilter(quickFilter === 'source-metro' ? null : 'source-metro')}
+                />
+                <QuickFilter
+                  label="TAI YAT"
+                  icon={Leaf}
+                  isActive={quickFilter === 'source-taiyat'}
+                  onClick={() => setQuickFilter(quickFilter === 'source-taiyat' ? null : 'source-taiyat')}
+                />
+                <QuickFilter
+                  label="EUROCIEL"
+                  icon={Fish}
+                  isActive={quickFilter === 'source-eurociel'}
+                  onClick={() => setQuickFilter(quickFilter === 'source-eurociel' ? null : 'source-eurociel')}
+                />
+              </>
+            )}
           </div>
 
           {hasFilters && (
@@ -788,8 +1217,13 @@ export default function CatalogPage() {
               <th className="w-10 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
                 #
               </th>
+              {dataSource === 'all' && (
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Source
+                </th>
+              )}
               <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-300">
-                EAN
+                {dataSource === 'metro' ? 'EAN' : dataSource === 'taiyat' ? 'EAN / Origine' : dataSource === 'all' ? 'Identifiant' : 'EAN'}
               </th>
               <SortableHeader sortKey="designation" currentSort={sortConfig} onSort={handleSort}>
                 Produit
@@ -797,9 +1231,11 @@ export default function CatalogPage() {
               <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-300">
                 Catégorie
               </th>
-              <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-300">
-                Colis
-              </th>
+              {(dataSource === 'metro' || dataSource === 'all') && (
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Colis
+                </th>
+              )}
               <SortableHeader sortKey="prix_unitaire" currentSort={sortConfig} onSort={handleSort} align="right">
                 Prix unit.
               </SortableHeader>
@@ -807,7 +1243,7 @@ export default function CatalogPage() {
                 Quantité
               </SortableHeader>
               <SortableHeader sortKey="montant_total" currentSort={sortConfig} onSort={handleSort} align="right">
-                Total HT
+                Total {dataSource === 'taiyat' ? 'TTC' : dataSource === 'all' ? '' : 'HT'}
               </SortableHeader>
               <SortableHeader sortKey="taux_tva" currentSort={sortConfig} onSort={handleSort} align="center">
                 TVA
@@ -820,7 +1256,7 @@ export default function CatalogPage() {
           <tbody className="divide-y divide-white/5">
             {paginatedProducts.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-12 text-center text-slate-400">
+                <td colSpan={dataSource === 'all' ? 11 : dataSource === 'metro' ? 10 : 9} className="px-4 py-12 text-center text-slate-400">
                   Aucun produit trouvé
                 </td>
               </tr>
@@ -829,7 +1265,7 @@ export default function CatalogPage() {
                 const globalRank = (currentPage - 1) * pageSize + idx + 1
                 return (
                   <tr
-                    key={product.ean + idx}
+                    key={product.identifier + product.source + idx}
                     onClick={() => setSelectedProduct(product)}
                     className="hover:bg-white/5 cursor-pointer transition-colors group"
                   >
@@ -847,8 +1283,44 @@ export default function CatalogPage() {
                         <span className="text-slate-500 text-xs">{globalRank}</span>
                       )}
                     </td>
+                    {dataSource === 'all' && (
+                      <td className="px-4 py-3 text-center">
+                        <span className={cn(
+                          'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
+                          product.source === 'metro' && 'bg-blue-500/20 text-blue-300',
+                          product.source === 'taiyat' && 'bg-green-500/20 text-green-300',
+                          product.source === 'eurociel' && 'bg-cyan-500/20 text-cyan-300',
+                          product.source === 'other' && 'bg-orange-500/20 text-orange-300'
+                        )}>
+                          {product.source === 'metro' && <Truck className="w-3 h-3" />}
+                          {product.source === 'taiyat' && <Leaf className="w-3 h-3" />}
+                          {product.source === 'eurociel' && <Fish className="w-3 h-3" />}
+                          {product.source === 'other' && <Store className="w-3 h-3" />}
+                          {product.source.toUpperCase()}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-4 py-3">
-                      <span className="font-mono text-xs text-slate-400">{product.ean}</span>
+                      {(dataSource === 'metro' || (dataSource === 'all' && product.source === 'metro')) ? (
+                        <span className="font-mono text-xs text-slate-400">{product.identifier}</span>
+                      ) : (dataSource === 'taiyat' || (dataSource === 'all' && product.source === 'taiyat')) ? (
+                        <div className="flex flex-col">
+                          {product.ean ? (
+                            <span className="font-mono text-xs text-emerald-400">{product.ean}</span>
+                          ) : (
+                            <span className="text-xs text-slate-500 italic">EAN manquant</span>
+                          )}
+                          <span className="text-xs text-slate-500">{product.provenance || '—'}</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col">
+                          {product.ean ? (
+                            <span className="font-mono text-xs text-cyan-400">{product.ean}</span>
+                          ) : (
+                            <span className="text-xs text-slate-500 italic">EAN manquant</span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-white truncate max-w-xs group-hover:text-blue-300 transition-colors">
@@ -856,21 +1328,35 @@ export default function CatalogPage() {
                       </p>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <CategoryBadge
-                        regie={product.regie}
-                        vol={product.vol_alcool}
-                        onClick={() => setCategoryFilter(product.categorie)}
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {product.colisage > 1 ? (
-                        <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-xs font-medium">
-                          x{product.colisage}
+                      {(dataSource === 'metro' || (dataSource === 'all' && product.source === 'metro')) ? (
+                        <CategoryBadge
+                          regie={product.regie || null}
+                          vol={product.vol_alcool || null}
+                          onClick={() => setCategoryFilter(product.categorie)}
+                        />
+                      ) : (dataSource === 'taiyat' || (dataSource === 'all' && product.source === 'taiyat')) ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-300">
+                          <Leaf className="w-3 h-3" />
+                          {product.categorie}
                         </span>
                       ) : (
-                        <span className="text-slate-500 text-xs">—</span>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-cyan-500/20 text-cyan-300">
+                          <Fish className="w-3 h-3" />
+                          {product.categorie}
+                        </span>
                       )}
                     </td>
+                    {(dataSource === 'metro' || dataSource === 'all') && (
+                      <td className="px-4 py-3 text-center">
+                        {product.colisage > 1 ? (
+                          <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-xs font-medium">
+                            x{product.colisage}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 text-xs">—</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-right">
                       <span className="font-mono text-slate-200">{formatCurrency(product.prix_unitaire)}</span>
                     </td>
@@ -909,7 +1395,7 @@ export default function CatalogPage() {
       <div className="md:hidden space-y-3">
         {paginatedProducts.map((product, idx) => (
           <ProductCard
-            key={product.ean + idx}
+            key={product.identifier + idx}
             product={product}
             onClick={() => setSelectedProduct(product)}
             rank={!hasFilters ? (currentPage - 1) * pageSize + idx + 1 : undefined}
@@ -1002,16 +1488,58 @@ export default function CatalogPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <h2 className="text-xl font-bold text-white">{selectedProduct.designation}</h2>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-sm text-slate-400 font-mono">{selectedProduct.ean}</p>
+                  <div className="flex flex-col gap-1 mt-1">
+                    {selectedProduct.source === 'metro' ? (
+                      <p className="text-sm text-slate-400 font-mono">{selectedProduct.identifier}</p>
+                    ) : selectedProduct.source === 'taiyat' ? (
+                      <>
+                        {selectedProduct.ean ? (
+                          <p className="text-sm text-emerald-400 font-mono">EAN: {selectedProduct.ean}</p>
+                        ) : (
+                          <p className="text-sm text-orange-400 italic">EAN non renseigné</p>
+                        )}
+                        <p className="text-xs text-slate-500">{selectedProduct.provenance || 'Origine non spécifiée'}</p>
+                      </>
+                    ) : selectedProduct.source === 'other' ? (
+                      <>
+                        <p className="text-sm text-orange-400">{selectedProduct.fournisseur_nom || 'Fournisseur divers'}</p>
+                        <p className="text-xs text-slate-500">{selectedProduct.famille} / {selectedProduct.categorie}</p>
+                      </>
+                    ) : (
+                      <>
+                        {selectedProduct.ean ? (
+                          <p className="text-sm text-cyan-400 font-mono">EAN: {selectedProduct.ean}</p>
+                        ) : (
+                          <p className="text-sm text-orange-400 italic">EAN non renseigné</p>
+                        )}
+                        <p className="text-xs text-slate-500">Prix au kg</p>
+                      </>
+                    )}
                     {selectedProduct.colisage > 1 && (
-                      <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                      <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 w-fit">
                         Colisage: x{selectedProduct.colisage}
                       </span>
                     )}
                   </div>
                 </div>
-                <CategoryBadge regie={selectedProduct.regie} vol={selectedProduct.vol_alcool} />
+                {selectedProduct.source === 'metro' ? (
+                  <CategoryBadge regie={selectedProduct.regie || null} vol={selectedProduct.vol_alcool || null} />
+                ) : selectedProduct.source === 'taiyat' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-300">
+                    <Leaf className="w-3 h-3" />
+                    {selectedProduct.categorie}
+                  </span>
+                ) : selectedProduct.source === 'other' ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-500/20 text-orange-300">
+                    <Store className="w-3 h-3" />
+                    {selectedProduct.categorie}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-cyan-500/20 text-cyan-300">
+                    <Fish className="w-3 h-3" />
+                    {selectedProduct.categorie}
+                  </span>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
@@ -1019,20 +1547,29 @@ export default function CatalogPage() {
                   <p className="text-xs text-slate-400">Prix unitaire</p>
                   <p className="text-2xl font-bold text-white">{formatCurrency(selectedProduct.prix_unitaire)}</p>
                 </div>
+                {(selectedProduct.source === 'metro' || selectedProduct.source === 'other') && selectedProduct.prix_colis ? (
+                  <div className="rounded-xl bg-white/5 p-4">
+                    <p className="text-xs text-slate-400">Prix colis</p>
+                    <p className="text-2xl font-bold text-slate-300">{formatCurrency(selectedProduct.prix_colis)}</p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-white/5 p-4">
+                    <p className="text-xs text-slate-400">Nombre d'achats</p>
+                    <p className="text-2xl font-bold text-purple-400">{selectedProduct.nb_achats}x</p>
+                  </div>
+                )}
                 <div className="rounded-xl bg-white/5 p-4">
-                  <p className="text-xs text-slate-400">Prix colis</p>
-                  <p className="text-2xl font-bold text-slate-300">{formatCurrency(selectedProduct.prix_colis)}</p>
-                </div>
-                <div className="rounded-xl bg-white/5 p-4">
-                  <p className="text-xs text-slate-400">Quantité (unités)</p>
+                  <p className="text-xs text-slate-400">Quantité (colis)</p>
                   <p className="text-2xl font-bold text-emerald-400">{formatNumber(selectedProduct.quantite_totale)}</p>
                 </div>
+                {selectedProduct.source === 'metro' && (
+                  <div className="rounded-xl bg-white/5 p-4">
+                    <p className="text-xs text-slate-400">Nombre d'achats</p>
+                    <p className="text-2xl font-bold text-purple-400">{selectedProduct.nb_achats}x</p>
+                  </div>
+                )}
                 <div className="rounded-xl bg-white/5 p-4">
-                  <p className="text-xs text-slate-400">Nombre d'achats</p>
-                  <p className="text-2xl font-bold text-purple-400">{selectedProduct.nb_achats}x</p>
-                </div>
-                <div className="rounded-xl bg-white/5 p-4">
-                  <p className="text-xs text-slate-400">Montant HT</p>
+                  <p className="text-xs text-slate-400">Montant {selectedProduct.source === 'taiyat' ? 'TTC' : 'HT'}</p>
                   <p className="text-2xl font-bold text-blue-400">{formatCurrency(selectedProduct.montant_total)}</p>
                 </div>
                 <div className="rounded-xl bg-white/5 p-4">
@@ -1047,6 +1584,67 @@ export default function CatalogPage() {
                   <p className="text-xs text-slate-400">Total TTC</p>
                   <p className="text-2xl font-bold text-emerald-400">{formatCurrency(selectedProduct.montant_total + selectedProduct.montant_tva)}</p>
                 </div>
+              </div>
+
+              {/* Historique des prix - Graphique */}
+              <div className="pt-4 border-t border-white/10">
+                <div className="flex items-center gap-2 mb-3">
+                  <History className="w-4 h-4 text-slate-400" />
+                  <h3 className="text-sm font-semibold text-slate-300">Historique des prix</h3>
+                  {loadingHistory && <Loader2 className="w-3 h-3 animate-spin text-slate-400" />}
+                  {priceHistory.length > 0 && (
+                    <span className="text-xs text-slate-500">({priceHistory.length} achats)</span>
+                  )}
+                </div>
+                {priceHistory.length > 0 ? (
+                  <div className="h-40 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={[...priceHistory].reverse().map(h => ({
+                          date: h.date.slice(5), // MM-DD
+                          prix: h.prix_unitaire,
+                        }))}
+                        margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                      >
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fill: '#94a3b8', fontSize: 10 }}
+                          axisLine={{ stroke: '#334155' }}
+                          tickLine={false}
+                          interval="preserveStartEnd"
+                        />
+                        <YAxis
+                          tick={{ fill: '#94a3b8', fontSize: 10 }}
+                          axisLine={{ stroke: '#334155' }}
+                          tickLine={false}
+                          width={45}
+                          tickFormatter={(v) => `${v.toFixed(2)}€`}
+                          domain={['dataMin - 0.1', 'dataMax + 0.1']}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#1e293b',
+                            border: '1px solid #334155',
+                            borderRadius: '8px',
+                            fontSize: '12px'
+                          }}
+                          labelStyle={{ color: '#94a3b8' }}
+                          formatter={(value) => [`${Number(value).toFixed(2)}€`, 'Prix']}
+                        />
+                        <Line
+                          type="stepAfter"
+                          dataKey="prix"
+                          stroke="#22c55e"
+                          strokeWidth={2}
+                          dot={{ fill: '#22c55e', strokeWidth: 0, r: 3 }}
+                          activeDot={{ r: 5, fill: '#4ade80' }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : !loadingHistory ? (
+                  <p className="text-sm text-slate-500 italic">Aucun historique disponible</p>
+                ) : null}
               </div>
 
               <button

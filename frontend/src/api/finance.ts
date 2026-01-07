@@ -22,13 +22,16 @@ import type {
   CostCenter,
   ExpenseCategory,
   FiscalYear,
+  Vendor,
+  VendorCreate,
+  VendorUpdate,
 } from '../types/finance';
 
 // ============================================
 // Base URL
 // ============================================
 
-const FINANCE_BASE = '/api/v1/finance';
+const FINANCE_BASE = '/finance';
 
 // ============================================
 // Factures
@@ -458,6 +461,57 @@ export const referentialsApi = {
   },
 };
 
+// ============================================
+// Fournisseurs (Vendors)
+// ============================================
+
+export const vendorsApi = {
+  getAll: async (entityId: number, activeOnly = true): Promise<Vendor[]> => {
+    const params = new URLSearchParams();
+    params.set('entity_id', String(entityId));
+    params.set('active_only', String(activeOnly));
+    const response = await apiClient.get(`${FINANCE_BASE}/vendors?${params}`);
+    return response.data;
+  },
+
+  getById: async (id: number): Promise<Vendor> => {
+    const response = await apiClient.get(`${FINANCE_BASE}/vendors/${id}`);
+    return response.data;
+  },
+
+  search: async (entityId: number, name: string): Promise<Vendor[]> => {
+    const params = new URLSearchParams();
+    params.set('entity_id', String(entityId));
+    params.set('name', name);
+    const response = await apiClient.get(`${FINANCE_BASE}/vendors/search?${params}`);
+    return response.data;
+  },
+
+  create: async (data: VendorCreate): Promise<Vendor> => {
+    const response = await apiClient.post(`${FINANCE_BASE}/vendors`, data);
+    return response.data;
+  },
+
+  update: async (id: number, data: VendorUpdate): Promise<Vendor> => {
+    const response = await apiClient.put(`${FINANCE_BASE}/vendors/${id}`, data);
+    return response.data;
+  },
+
+  deactivate: async (id: number): Promise<Vendor> => {
+    const response = await apiClient.post(`${FINANCE_BASE}/vendors/${id}/deactivate`);
+    return response.data;
+  },
+
+  activate: async (id: number): Promise<Vendor> => {
+    const response = await apiClient.post(`${FINANCE_BASE}/vendors/${id}/activate`);
+    return response.data;
+  },
+
+  delete: async (id: number): Promise<void> => {
+    await apiClient.delete(`${FINANCE_BASE}/vendors/${id}`);
+  },
+};
+
 // Export groupé
 export const financeApi = {
   invoices: invoicesApi,
@@ -469,4 +523,5 @@ export const financeApi = {
   dueDates: dueDatesApi,
   analytics: financeAnalyticsApi,
   referentials: referentialsApi,
+  vendors: vendorsApi,
 };

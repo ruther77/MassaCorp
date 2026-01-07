@@ -34,6 +34,12 @@ from app.repositories.password_reset import PasswordResetRepository
 from app.repositories.rbac import PermissionRepository, RoleRepository, UserRoleRepository
 from app.repositories.oauth import OAuthRepository
 
+# Epicerie
+from app.repositories.epicerie import (
+    SupplyOrderRepository,
+    SupplyOrderLineRepository,
+)
+
 __all__ = [
     # Base
     "BaseRepository",
@@ -60,4 +66,7 @@ __all__ = [
     "UserRoleRepository",
     # OAuth
     "OAuthRepository",
+    # Epicerie
+    "SupplyOrderRepository",
+    "SupplyOrderLineRepository",
 ]
